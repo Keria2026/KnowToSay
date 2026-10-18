@@ -1,0 +1,5 @@
+apps/web/src/lib/generated/
+apps/web/static/openapi.json
+node_modules/
+build/
+.svelte-kit/

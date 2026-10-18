@@ -1,0 +1,10 @@
+[workspace]
+members = ["apps/api"]
+resolver = "2"
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+strip = true
+lto = "thin"

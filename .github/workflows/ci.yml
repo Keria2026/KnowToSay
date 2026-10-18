@@ -1,0 +1,39 @@
+name: Validate and package Windows desktop
+on:
+  push:
+    branches: [master, dev]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run format:check
+      - run: bun test apps/web/src
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: bun run contract
+      - run: git diff --exit-code -- apps/web/src/lib/generated/api.ts apps/web/static/openapi.json
+      - name: Build Windows x64 NSIS installer
+        run: bun run desktop:build --target x86_64-pc-windows-msvc --bundles nsis --ci
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: KnowToSay-Windows-installer
+          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14

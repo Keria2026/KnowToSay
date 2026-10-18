@@ -1,0 +1,28 @@
+{
+  "name": "knowtosay",
+  "private": true,
+  "packageManager": "bun@1.4.3",
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd apps/web dev",
+    "build": "bun run --cwd apps/web build",
+    "check": "bun run --cwd apps/web check",
+    "test": "bun test apps/web/src",
+    "test:e2e": "playwright test",
+    "format": "prettier --write apps/web/src apps/web/*.js apps/web/*.ts playwright.config.ts package.json apps/web/package.json",
+    "format:check": "prettier --check apps/web/src apps/web/*.js apps/web/*.ts playwright.config.ts package.json apps/web/package.json",
+    "api": "cargo run -p knowtosay --bin knowtosay-api",
+    "contract": "cargo run -p knowtosay --bin export-openapi > apps/web/static/openapi.json && bunx openapi-typescript apps/web/static/openapi.json -o apps/web/src/lib/generated/api.ts",
+    "desktop": "cd apps/api && bunx tauri dev --features desktop",
+    "desktop:build": "cd apps/api && bunx tauri build --features desktop"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.0",
+    "prettier-plugin-svelte": "^3.4.0",
+    "@playwright/test": "^1.58.0",
+    "@tauri-apps/cli": "^2.10.0",
+    "openapi-typescript": "^7.10.0"
+  }
+}

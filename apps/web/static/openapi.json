@@ -1,0 +1,1031 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "KnowToSay local API",
+    "description": "",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/group": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "create_group",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGroup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/group/discover": {
+      "get": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "discover",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Discovery"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/group/join": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "join_group",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinGroup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/manifest": {
+      "get": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "manifest",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Manifest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/materials": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "save_material",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Material"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/materials/{id}/rows": {
+      "get": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "material_rows",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SheetPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/personal/export": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "export_personal",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/personal/import": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "import_personal",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/publish": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "publish",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Manifest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scripts/import": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "import_scripts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportScripts"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScriptNode"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scripts/{id}": {
+      "put": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "save_node",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/search/materials": {
+      "get": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "search_materials",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MaterialSearchResult"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/snapshot": {
+      "get": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "snapshot",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sync": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "start_sync",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sync/status": {
+      "get": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "sync_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          }
+        }
+      },
+      "BackupRequest": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Branch": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "targetId"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateGroup": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "DesktopPreferences": {
+        "type": "object",
+        "required": [
+          "shortcut",
+          "edges",
+          "dwellMs",
+          "copyHides"
+        ],
+        "properties": {
+          "copyHides": {
+            "type": "boolean"
+          },
+          "dwellMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "shortcut": {
+            "type": "string"
+          }
+        }
+      },
+      "DesktopStatus": {
+        "type": "object",
+        "required": [
+          "preferences",
+          "shortcutRegistered"
+        ],
+        "properties": {
+          "preferences": {
+            "$ref": "#/components/schemas/DesktopPreferences"
+          },
+          "shortcutRegistered": {
+            "type": "boolean"
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Discovery": {
+        "type": "object",
+        "required": [
+          "groupId",
+          "name",
+          "address"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "FileResult": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "ImportScripts": {
+        "type": "object",
+        "required": [
+          "materialId",
+          "mapping",
+          "preview"
+        ],
+        "properties": {
+          "mapping": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "materialId": {
+            "type": "string"
+          },
+          "preview": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JoinGroup": {
+        "type": "object",
+        "required": [
+          "address"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          }
+        }
+      },
+      "Manifest": {
+        "type": "object",
+        "required": [
+          "formatVersion",
+          "groupId",
+          "groupName",
+          "version",
+          "nodes",
+          "materials"
+        ],
+        "properties": {
+          "formatVersion": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "groupName": {
+            "type": "string"
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Material"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScriptNode"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Material": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "category",
+          "tags",
+          "notes",
+          "text",
+          "mime",
+          "size",
+          "rows"
+        ],
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SheetRow"
+            }
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "MaterialSearchResult": {
+        "type": "object",
+        "required": [
+          "material",
+          "rows"
+        ],
+        "properties": {
+          "material": {
+            "$ref": "#/components/schemas/Material"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SheetRow"
+            }
+          }
+        }
+      },
+      "NodeRecord": {
+        "type": "object",
+        "required": [
+          "node",
+          "source"
+        ],
+        "properties": {
+          "node": {
+            "$ref": "#/components/schemas/ScriptNode"
+          },
+          "official": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScriptNode"
+              }
+            ]
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "Position": {
+        "type": "object",
+        "required": [
+          "x",
+          "y"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "format": "double"
+          },
+          "y": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "RestoreRequest": {
+        "type": "object",
+        "required": [
+          "directory"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string"
+          }
+        }
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "admin",
+          "sales"
+        ]
+      },
+      "ScriptNode": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "question",
+          "category",
+          "isEntry",
+          "replies",
+          "variables",
+          "branches",
+          "materialIds"
+        ],
+        "properties": {
+          "branches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Branch"
+            }
+          },
+          "category": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "isEntry": {
+            "type": "boolean"
+          },
+          "materialIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "position": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Position"
+              }
+            ]
+          },
+          "question": {
+            "type": "string"
+          },
+          "replies": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Variable"
+            }
+          }
+        }
+      },
+      "SheetPage": {
+        "type": "object",
+        "required": [
+          "rows",
+          "total"
+        ],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SheetRow"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "SheetRow": {
+        "type": "object",
+        "required": [
+          "sheet",
+          "row",
+          "cells"
+        ],
+        "properties": {
+          "cells": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "row": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sheet": {
+            "type": "string"
+          }
+        }
+      },
+      "Snapshot": {
+        "type": "object",
+        "required": [
+          "nodes",
+          "materials",
+          "draftDirty"
+        ],
+        "properties": {
+          "draftDirty": {
+            "type": "boolean"
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Material"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NodeRecord"
+            }
+          },
+          "workspace": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Workspace"
+              }
+            ]
+          }
+        }
+      },
+      "SyncStatus": {
+        "type": "object",
+        "required": [
+          "phase",
+          "message",
+          "completedBytes",
+          "totalBytes",
+          "version"
+        ],
+        "properties": {
+          "completedBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "totalBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Variable": {
+        "type": "object",
+        "required": [
+          "name",
+          "label",
+          "required"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Workspace": {
+        "type": "object",
+        "required": [
+          "groupId",
+          "name",
+          "role",
+          "version"
+        ],
+        "properties": {
+          "adminAddress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      }
+    }
+  }
+}

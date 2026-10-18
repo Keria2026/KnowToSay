@@ -1,0 +1,50 @@
+use crate::{http, models::*};
+use utoipa::OpenApi;
+#[derive(OpenApi)]
+#[openapi(
+    info(title = "KnowToSay local API", version = "0.1.0"),
+    paths(
+        http::snapshot,
+        http::create_group,
+        http::join_group,
+        http::discover,
+        http::save_node,
+        http::import_scripts,
+        http::save_material,
+        http::publish,
+        http::manifest,
+        http::start_sync,
+        http::sync_status,
+        http::search_materials,
+        http::material_rows,
+        http::export_personal,
+        http::import_personal
+    ),
+    components(schemas(
+        Workspace,
+        Role,
+        Variable,
+        Branch,
+        Position,
+        ScriptNode,
+        SheetRow,
+        Material,
+        MaterialSearchResult,
+        SheetPage,
+        NodeRecord,
+        Snapshot,
+        Manifest,
+        CreateGroup,
+        JoinGroup,
+        Discovery,
+        SyncStatus,
+        BackupRequest,
+        RestoreRequest,
+        FileResult,
+        ApiError,
+        http::ImportScripts,
+        DesktopPreferences,
+        DesktopStatus
+    ))
+)]
+pub struct ApiDoc;
