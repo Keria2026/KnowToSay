@@ -112,6 +112,36 @@
         }
       }
     },
+    "/api/v1/material-categories": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "create_material_category",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMaterialCategory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/materials": {
       "post": {
         "tags": [
@@ -504,6 +534,17 @@
           }
         }
       },
+      "CreateMaterialCategory": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "DesktopPreferences": {
         "type": "object",
         "required": [
@@ -640,6 +681,12 @@
           },
           "groupName": {
             "type": "string"
+          },
+          "materialCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "materials": {
             "type": "array",
@@ -920,6 +967,12 @@
         "properties": {
           "draftDirty": {
             "type": "boolean"
+          },
+          "materialCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "materials": {
             "type": "array",

@@ -108,6 +108,8 @@ pub struct Snapshot {
     pub workspace: Option<Workspace>,
     pub nodes: Vec<NodeRecord>,
     pub materials: Vec<Material>,
+    #[serde(default)]
+    pub material_categories: Vec<String>,
     pub draft_dirty: bool,
 }
 
@@ -120,6 +122,14 @@ pub struct Manifest {
     pub version: i64,
     pub nodes: Vec<ScriptNode>,
     pub materials: Vec<Material>,
+    #[serde(default)]
+    pub material_categories: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateMaterialCategory {
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]

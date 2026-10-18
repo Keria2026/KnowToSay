@@ -527,3 +527,188 @@ async fn personal_backup_restores_only_personal_content() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn empty_material_categories_survive_publish_sync_packages_and_backup_restore() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let create = |name: &str| json!({"name":name});
+    let (status, view) = local(
+        &admin,
+        "POST",
+        "/material-categories",
+        create("  产品资料  "),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["materialCategories"], json!(["产品资料"]));
+    assert_eq!(view["materials"], json!([]));
+    assert_eq!(view["draftDirty"], true);
+    for name in ["产品资料", " 产品资料 ", "未分类"] {
+        assert_eq!(
+            local(&admin, "POST", "/material-categories", create(name))
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+    }
+    for name in ["   ".to_string(), "长".repeat(81), "错误\n分类".into()] {
+        assert_eq!(
+            local(&admin, "POST", "/material-categories", create(&name))
+                .await
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let reopened = AppState::open(&*admin.root).await.unwrap();
+    assert_eq!(
+        reopened.snapshot().await.unwrap().material_categories,
+        vec!["产品资料"]
+    );
+    admin.publish().await.unwrap();
+    assert!(!admin.snapshot().await.unwrap().draft_dirty);
+    let address = server(admin.clone(), None).await;
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    assert_eq!(
+        sales.snapshot().await.unwrap().material_categories,
+        vec!["产品资料"]
+    );
+    assert_eq!(
+        local(
+            &sales,
+            "POST",
+            "/material-categories",
+            create("业务员不能创建")
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    admin.create_material_category("未发布分类").await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    assert_eq!(
+        sales.snapshot().await.unwrap().material_categories,
+        vec!["产品资料"]
+    );
+    let backup = backup::backup(&admin, None).await.unwrap();
+    admin
+        .create_material_category("备份之后新增")
+        .await
+        .unwrap();
+    admin.publish().await.unwrap();
+    backup::restore(&admin, &backup.path).await.unwrap();
+    assert_eq!(
+        admin.snapshot().await.unwrap().material_categories,
+        vec!["产品资料", "未发布分类"]
+    );
+    assert_eq!(
+        admin.latest().await.unwrap().material_categories,
+        vec!["产品资料"]
+    );
+    sync::synchronize(&sales, &address).await.unwrap();
+    assert_eq!(
+        sales.snapshot().await.unwrap().material_categories,
+        vec!["产品资料"]
+    );
+    let package = backup::export_package(&admin, None).await.unwrap();
+    let offline = AppState::open(dir.path().join("offline")).await.unwrap();
+    backup::import_package(&offline, &package.path)
+        .await
+        .unwrap();
+    assert_eq!(
+        offline.snapshot().await.unwrap().material_categories,
+        vec!["产品资料"]
+    );
+}
+
+#[tokio::test]
+async fn material_category_migration_preserves_existing_assignments_and_empty_categories() {
+    let dir = tempfile::tempdir().unwrap();
+    let migrations = dir.path().join("old-migrations");
+    tokio::fs::create_dir(&migrations).await.unwrap();
+    for (name, sql) in [
+        (
+            "0001_initial.sql",
+            include_str!("../migrations/0001_initial.sql"),
+        ),
+        (
+            "0002_material_search.sql",
+            include_str!("../migrations/0002_material_search.sql"),
+        ),
+    ] {
+        tokio::fs::write(migrations.join(name), sql).await.unwrap();
+    }
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(dir.path().join("workspace.sqlite"))
+        .create_if_missing(true);
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_with(options)
+        .await
+        .unwrap();
+    sqlx::migrate::Migrator::new(migrations.as_path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap();
+    let material = Material {
+        id: "legacy".into(),
+        name: "原有资料".into(),
+        kind: "text".into(),
+        category: "原有分类".into(),
+        tags: vec![],
+        notes: String::new(),
+        text: "原有内容".into(),
+        mime: "text/plain".into(),
+        hash: None,
+        size: 0,
+        rows: vec![],
+    };
+    let encoded = serde_json::to_string(&material).unwrap();
+    for table in ["draft_materials", "official_materials"] {
+        sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?)"))
+            .bind(&material.id)
+            .bind(&encoded)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    pool.close().await;
+    let state = AppState::open(dir.path()).await.unwrap();
+    for table in ["draft_material_categories", "official_material_categories"] {
+        assert_eq!(state.list::<String>(table).await.unwrap(), vec!["原有分类"]);
+    }
+    assert_eq!(
+        state.list::<Material>("draft_materials").await.unwrap(),
+        vec![material.clone()]
+    );
+    let changed = Material {
+        category: "新增归类".into(),
+        ..material.clone()
+    };
+    for _ in 0..2 {
+        state
+            .put("draft_materials", &changed.id, &changed)
+            .await
+            .unwrap();
+    }
+    sqlx::query("DELETE FROM draft_materials")
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        state
+            .list::<String>("draft_material_categories")
+            .await
+            .unwrap(),
+        vec!["原有分类", "新增归类"]
+    );
+    assert_eq!(
+        state
+            .list::<String>("official_material_categories")
+            .await
+            .unwrap(),
+        vec!["原有分类"]
+    );
+}

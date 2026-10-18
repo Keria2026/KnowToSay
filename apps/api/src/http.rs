@@ -33,6 +33,10 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/scripts/{id}/reset", post(reset_node))
         .route("/api/v1/scripts/import", post(import_scripts))
         .route("/api/v1/materials", post(save_material))
+        .route(
+            "/api/v1/material-categories",
+            post(create_material_category),
+        )
         .route("/api/v1/materials/{id}", delete(delete_material))
         .route("/api/v1/materials/{id}/file", get(material_file))
         .route("/api/v1/materials/{id}/rows", get(material_rows))
@@ -320,6 +324,15 @@ pub async fn save_material(
         .put("draft_materials", &material.id, &material)
         .await?;
     drop(_guard);
+    Ok(Json(state.snapshot().await?))
+}
+
+#[utoipa::path(post,path="/api/v1/material-categories",request_body=CreateMaterialCategory,responses((status=200,body=Snapshot)))]
+pub async fn create_material_category(
+    State(state): State<AppState>,
+    Json(input): Json<CreateMaterialCategory>,
+) -> Result<Json<Snapshot>> {
+    state.create_material_category(&input.name).await?;
     Ok(Json(state.snapshot().await?))
 }
 

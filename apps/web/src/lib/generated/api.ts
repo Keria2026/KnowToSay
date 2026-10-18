@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/material-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_material_category"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/materials": {
         parameters: {
             query?: never;
@@ -265,6 +281,9 @@ export interface components {
         CreateGroup: {
             name: string;
         };
+        CreateMaterialCategory: {
+            name: string;
+        };
         DesktopPreferences: {
             copyHides: boolean;
             /** Format: int64 */
@@ -300,6 +319,7 @@ export interface components {
             formatVersion: number;
             groupId: string;
             groupName: string;
+            materialCategories?: string[];
             materials: components["schemas"]["Material"][];
             nodes: components["schemas"]["ScriptNode"][];
             /** Format: int64 */
@@ -366,6 +386,7 @@ export interface components {
         };
         Snapshot: {
             draftDirty: boolean;
+            materialCategories?: string[];
             materials: components["schemas"]["Material"][];
             nodes: components["schemas"]["NodeRecord"][];
             workspace?: null | components["schemas"]["Workspace"];
@@ -482,6 +503,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Manifest"];
+                };
+            };
+        };
+    };
+    create_material_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMaterialCategory"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
                 };
             };
         };

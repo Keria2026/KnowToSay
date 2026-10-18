@@ -102,6 +102,7 @@ impl AppState {
                 workspace: None,
                 nodes: vec![],
                 materials: vec![],
+                material_categories: vec![],
                 draft_dirty: false,
             });
         };
@@ -124,15 +125,20 @@ impl AppState {
                 );
             }
         }
-        let (nodes, mut materials, dirty) = if workspace.role == Role::Admin {
+        let official_categories = self.list::<String>("official_material_categories").await?;
+        let (nodes, mut materials, material_categories, dirty) = if workspace.role == Role::Admin {
             let n = self.list::<ScriptNode>("draft_nodes").await?;
             let m = self.list::<Material>("draft_materials").await?;
-            let dirty = n != official || m != self.list::<Material>("official_materials").await?;
-            (n, m, dirty)
+            let categories = self.list::<String>("draft_material_categories").await?;
+            let dirty = n != official
+                || m != self.list::<Material>("official_materials").await?
+                || categories != official_categories;
+            (n, m, categories, dirty)
         } else {
             (
                 official,
                 self.list::<Material>("official_materials").await?,
+                official_categories,
                 false,
             )
         };
@@ -170,8 +176,33 @@ impl AppState {
             workspace: Some(workspace),
             nodes: map.into_values().collect(),
             materials,
+            material_categories,
             draft_dirty: dirty,
         })
+    }
+    pub async fn create_material_category(&self, name: &str) -> Result<()> {
+        let _guard = self.write.lock().await;
+        self.admin().await?;
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
+            return Err(Error::invalid(
+                "分类名称需为 1–80 个字符，且不能包含换行或控制字符",
+            ));
+        }
+        if name == "未分类" {
+            return Err(Error::conflict("此分类已存在"));
+        }
+        let result = sqlx::query(
+            "INSERT INTO draft_material_categories(id,json) VALUES(?,?) ON CONFLICT(id) DO NOTHING",
+        )
+        .bind(name)
+        .bind(serde_json::to_string(name)?)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(Error::conflict("此分类已存在"));
+        }
+        Ok(())
     }
     pub async fn save_node(&self, node: ScriptNode) -> Result<()> {
         validate_node(&node)?;
@@ -270,6 +301,7 @@ impl AppState {
             version: workspace.version,
             nodes,
             materials,
+            material_categories: self.list("draft_material_categories").await?,
         };
         let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM official_nodes")
@@ -281,6 +313,14 @@ impl AppState {
         sqlx::query("DELETE FROM official_materials")
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM official_material_categories")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO official_material_categories SELECT * FROM draft_material_categories",
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("INSERT INTO official_materials SELECT * FROM draft_materials")
             .execute(&mut *tx)
             .await?;
@@ -325,6 +365,16 @@ impl AppState {
         sqlx::query("DELETE FROM official_materials")
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM official_material_categories")
+            .execute(&mut *tx)
+            .await?;
+        for name in &manifest.material_categories {
+            sqlx::query("INSERT OR IGNORE INTO official_material_categories(id,json) VALUES(?,?)")
+                .bind(name)
+                .bind(serde_json::to_string(name)?)
+                .execute(&mut *tx)
+                .await?;
+        }
         for n in &manifest.nodes {
             sqlx::query("INSERT INTO official_nodes(id,json) VALUES(?,?)")
                 .bind(&n.id)
@@ -352,7 +402,9 @@ fn checked_table(table: &str) -> Result<&str> {
         | "personal_nodes"
         | "personal_dependencies"
         | "official_materials"
-        | "draft_materials" => Ok(table),
+        | "draft_materials"
+        | "draft_material_categories"
+        | "official_material_categories" => Ok(table),
         _ => Err(Error::invalid("未知数据表")),
     }
 }
