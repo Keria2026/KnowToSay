@@ -4,6 +4,8 @@ on:
     branches: [master, dev]
   pull_request:
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   desktop:
     runs-on: windows-latest
@@ -26,9 +28,12 @@ jobs:
       - run: cargo test --workspace --locked
       - run: bun run contract
       - run: git diff --exit-code -- apps/web/src/lib/generated/api.ts apps/web/static/openapi.json
-      - run: bun run desktop:build
-      - uses: actions/upload-artifact@v4
+      - name: Build Windows x64 NSIS installer
+        run: bun run desktop:build --target x86_64-pc-windows-msvc --bundles nsis --ci
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
         with:
           name: KnowToSay-Windows-installer
-          path: target/release/bundle/nsis/*.exe
+          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
           if-no-files-found: error
+          retention-days: 14

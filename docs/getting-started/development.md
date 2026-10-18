@@ -85,7 +85,9 @@ bun run test:e2e
 bun run desktop:build
 ```
 
-构建输出位于 `target/release/bundle/nsis/`。仓库工作流对 `dev`、`master` 推送运行检查并尝试生成 NSIS 安装包，产物名为 `KnowToSay-Windows-installer`。提交工作流不代表该次远端运行已经成功。
+本地默认构建输出位于 `target/release/bundle/nsis/`。仓库工作流对 `dev`、`master` 推送及 PR 运行检查，并执行 `bun run desktop:build --target x86_64-pc-windows-msvc --bundles nsis --ci`，生成 Windows x64 NSIS 安装包。CI 输出位于 `target/x86_64-pc-windows-msvc/release/bundle/nsis/`，产物名为 `KnowToSay-Windows-installer`，保留 14 天；缺少 `.exe` 时任务必须失败。提交工作流不代表该次远端运行已经成功。
+
+Git 使用 `.gitattributes` 将文本文件统一检出为 LF，Prettier 同样检查 LF，避免 Windows 的 `core.autocrlf=true` 使所有前端文件在格式检查阶段失败。不得通过跳过格式检查来解决换行差异。
 
 ## 交付前仍需目标环境验收
 
