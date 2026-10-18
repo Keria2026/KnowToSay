@@ -28,6 +28,14 @@
 
 ## 2. 固定技术栈
 
+### 已批准的桌面端例外
+
+用户已明确批准第一版采用 Windows 10+ 的 Tauri 桌面客户端，并使用 SQLite 作为本地数据库，通过 Rust / SQLx 访问；图片、视频、Excel 等素材作为本地文件保存。第一版不部署独立公网服务端；管理员客户端内置局域网同步服务。
+
+本例外优先于本文中要求桌面端使用 PostgreSQL 的描述，包括数据库章节、调用关系及数据库特有类型。Svelte 5、SvelteKit、TypeScript Strict、Bun、Rust Stable、SQLx 和其他通用规范继续适用。SQLite 迁移仍需版本管理，时间统一按 UTC 存储，不直接使用 PostgreSQL 专有类型。未来独立服务端的数据库不在本次决策范围内。
+
+开发前还应阅读 [首版范围](docs/architecture/v1-scope.md)、[领域术语](docs/architecture/domain-glossary.md)和[桌面端存储决策](docs/adr/0001-offline-desktop-storage.md)。
+
 ### Frontend
 
 - Language: TypeScript Strict

@@ -1,0 +1,12 @@
+node_modules/
+.svelte-kit/
+build/
+target/
+.local/
+.env
+.env.*
+!.env.example
+*.log
+test-results/
+playwright-report/
+apps/api/gen/

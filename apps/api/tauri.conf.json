@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KnowToSay",
+  "version": "0.1.0",
+  "identifier": "com.keria.knowtosay",
+  "build": {
+    "beforeDevCommand": { "script": "bun run dev", "cwd": "../.." },
+    "beforeBuildCommand": { "script": "bun run build", "cwd": "../.." },
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../web/build"
+  },
+  "app": {
+    "windows": [{ "label": "main", "title": "KnowToSay · 话术与知识库", "width": 1360, "height": 860, "minWidth": 340, "minHeight": 560 }],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost blob:; connect-src ipc: http://ipc.localhost 'self'; object-src 'none'; frame-src 'none'",
+      "assetProtocol": { "enable": true, "scope": ["$APPDATA/blobs/*"] }
+    }
+  },
+  "bundle": { "active": true, "targets": ["nsis"], "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"], "shortDescription": "离线销售话术与知识库", "windows": { "nsis": { "languages": ["SimpChinese", "English"], "displayLanguageSelector": false } } }
+}
