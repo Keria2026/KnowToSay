@@ -60,8 +60,11 @@
             ><strong>{record.node.title}</strong><BilingualReplies
               node={record.node}
             /><span class="tag"
-              >{scriptKindName(record.node.kind)} · {record.node.category ||
-                '未分类'}{record.source === 'personal'
+              >{scriptKindName(record.node.kind)} · {record.node.kind ===
+              'quick'
+                ? record.node.category || '未分类'
+                : app.flows.find((f) => f.id === record.node.flowId)?.name ||
+                  '流程'}{record.source === 'personal'
                 ? ' · 个人版本'
                 : ''}</span
             ></span

@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/v1/flows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["save_flow"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/group": {
         parameters: {
             query?: never;
@@ -164,6 +180,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/quick-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_quick_category"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scripts": {
         parameters: {
             query?: never;
@@ -300,6 +332,9 @@ export interface components {
         CreateMaterialCategory: {
             name: string;
         };
+        CreateQuickCategory: {
+            name: string;
+        };
         DesktopPreferences: {
             copyHides: boolean;
             /** Format: int64 */
@@ -321,7 +356,12 @@ export interface components {
         FileResult: {
             path: string;
         };
+        Flow: {
+            id: string;
+            name: string;
+        };
         ImportScripts: {
+            flowId?: string | null;
             mapping: {
                 [key: string]: string;
             };
@@ -332,6 +372,7 @@ export interface components {
             address: string;
         };
         Manifest: {
+            flows?: components["schemas"]["Flow"][];
             /** Format: int32 */
             formatVersion: number;
             groupId: string;
@@ -339,6 +380,7 @@ export interface components {
             materialCategories?: string[];
             materials: components["schemas"]["Material"][];
             nodes: components["schemas"]["ScriptNode"][];
+            quickCategories?: string[];
             /** Format: int64 */
             version: number;
         };
@@ -384,6 +426,7 @@ export interface components {
         ScriptNode: {
             branches: components["schemas"]["Branch"][];
             category: string;
+            flowId?: string | null;
             id: string;
             isEntry: boolean;
             kind?: components["schemas"]["ScriptKind"];
@@ -411,9 +454,11 @@ export interface components {
         };
         Snapshot: {
             draftDirty: boolean;
+            flows: components["schemas"]["Flow"][];
             materialCategories?: string[];
             materials: components["schemas"]["Material"][];
             nodes: components["schemas"]["NodeRecord"][];
+            quickCategories?: string[];
             workspace?: null | components["schemas"]["Workspace"];
         };
         SyncStatus: {
@@ -448,6 +493,31 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    save_flow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Flow"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+        };
+    };
     create_group: {
         parameters: {
             query?: never;
@@ -663,6 +733,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Manifest"];
+                };
+            };
+        };
+    };
+    create_quick_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateQuickCategory"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
                 };
             };
         };

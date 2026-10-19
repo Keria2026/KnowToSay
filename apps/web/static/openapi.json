@@ -9,6 +9,46 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/flows/{id}": {
+      "put": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "save_flow",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Flow"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/group": {
       "post": {
         "tags": [
@@ -299,6 +339,36 @@
         }
       }
     },
+    "/api/v1/quick-categories": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "create_quick_category",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateQuickCategory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/scripts": {
       "put": {
         "tags": [
@@ -575,6 +645,17 @@
           }
         }
       },
+      "CreateQuickCategory": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "DesktopPreferences": {
         "type": "object",
         "required": [
@@ -658,6 +739,21 @@
           }
         }
       },
+      "Flow": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "ImportScripts": {
         "type": "object",
         "required": [
@@ -666,6 +762,12 @@
           "preview"
         ],
         "properties": {
+          "flowId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "mapping": {
             "type": "object",
             "additionalProperties": {
@@ -705,6 +807,12 @@
           "materials"
         ],
         "properties": {
+          "flows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Flow"
+            }
+          },
           "formatVersion": {
             "type": "integer",
             "format": "int32",
@@ -732,6 +840,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ScriptNode"
+            }
+          },
+          "quickCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "version": {
@@ -923,6 +1037,12 @@
           "category": {
             "type": "string"
           },
+          "flowId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -1026,12 +1146,19 @@
         "type": "object",
         "required": [
           "nodes",
+          "flows",
           "materials",
           "draftDirty"
         ],
         "properties": {
           "draftDirty": {
             "type": "boolean"
+          },
+          "flows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Flow"
+            }
           },
           "materialCategories": {
             "type": "array",
@@ -1049,6 +1176,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/NodeRecord"
+            }
+          },
+          "quickCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "workspace": {

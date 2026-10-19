@@ -17,13 +17,23 @@
   } from 'lucide-svelte';
   import { app } from '../workspace/store.svelte';
   import { api } from '../workspace/api';
-  import { replyPreview, newNode, scriptKindName } from '$lib/utils/scripts';
+  import {
+    replyPreview,
+    newNode,
+    scriptKindName,
+    languageName,
+    quickCategoryName,
+  } from '$lib/utils/scripts';
   import type { Material, Snapshot, ScriptKind } from '$lib/types';
   import FlowCanvas from './FlowCanvas.svelte';
-  import { connectedFlow } from './flow';
+  import ScriptNavigation from './ScriptNavigation.svelte';
   let node = $derived(app.current?.node);
   let showFlow = $state(false);
-  let completeFlow = $derived(connectedFlow(app.nodes, node?.id || ''));
+  let completeFlow = $derived(
+    app.nodes.filter(
+      (r) => r.node.kind !== 'quick' && r.node.flowId === app.activeFlowId,
+    ),
+  );
   let preview = $derived(
     node ? replyPreview(node, app.language, app.values) : null,
   );
@@ -48,12 +58,38 @@
         ]
       : [],
   );
-  let flows = $derived(app.nodes.filter((n) => n.node.kind !== 'quick'));
+  let flows = $derived(
+    app.nodes.filter(
+      (n) => n.node.kind !== 'quick' && n.node.flowId === app.activeFlowId,
+    ),
+  );
   let entries = $derived(flows.filter((n) => n.node.isEntry));
-  let quick = $derived(app.nodes.filter((n) => n.node.kind === 'quick'));
+  let quick = $derived(
+    app.nodes.filter(
+      (n) =>
+        n.node.kind === 'quick' &&
+        quickCategoryName(n.node) === app.activeQuickCategory,
+    ),
+  );
   let choices = $derived(
     app.browseKind === 'quick' ? quick : entries.length ? entries : flows,
   );
+  function switchFlow(id: string) {
+    app.flowId = id;
+    const steps = app.nodes.filter(
+      (r) => r.node.kind !== 'quick' && r.node.flowId === id,
+    );
+    const entry = steps.find((r) => r.node.isEntry) || steps[0];
+    if (entry) app.select(entry.node.id, true);
+    else {
+      app.selectedId = '';
+      app.history = [];
+    }
+  }
+  function switchCategory(name: string) {
+    app.quickCategory = name;
+    browse('quick');
+  }
   function browse(kind: ScriptKind) {
     app.browseKind = kind;
     const first = kind === 'quick' ? quick[0] : entries[0] || flows[0];
@@ -68,12 +104,26 @@
       kind
     ] || FileText;
   function add() {
-    app.freshNode = newNode();
+    app.freshNode =
+      app.browseKind === 'quick'
+        ? newNode('quick')
+        : app.activeFlowId
+          ? newNode('flow', app.activeFlowId)
+          : null;
+    if (app.freshNode?.kind === 'quick')
+      app.freshNode.category = app.activeQuickCategory;
     app.editorId = '';
-    app.editorKind = 'flow';
+    app.editorKind = app.browseKind;
     app.nav = 'scripts';
   }
 </script>
+
+<ScriptNavigation
+  kind={app.browseKind}
+  onkind={browse}
+  onflow={switchFlow}
+  oncategory={switchCategory}
+/>
 
 {#if !app.nodes.length}
   <div class="empty-workspace">
@@ -118,48 +168,33 @@
           高亮为当前话术。点击步骤查看回复，滚轮缩放，拖动空白处平移。
         </p>
         <div class="workbench-flow-canvas">
-          <FlowCanvas
-            records={completeFlow}
-            selectedId={node.id}
-            label="销售工作台完整流程图"
-            onselect={(id) => app.select(id, true)}
-          />
+          {#key app.activeFlowId}<FlowCanvas
+              records={completeFlow}
+              selectedId={node.id}
+              label="销售工作台完整流程图"
+              onselect={(id) => app.select(id, true)}
+            />{/key}
         </div>
       </section>
     {/if}
     {#if !app.compact}<aside class="flow-list">
-        <div
-          class="script-type-tabs compact-tabs"
-          role="tablist"
-          aria-label="工作台话术类型"
-        >
-          <button
-            role="tab"
-            aria-selected={app.browseKind === 'flow'}
-            class:active={app.browseKind === 'flow'}
-            onclick={() => browse('flow')}>流程话术</button
-          >
-          <button
-            role="tab"
-            aria-selected={app.browseKind === 'quick'}
-            class:active={app.browseKind === 'quick'}
-            onclick={() => browse('quick')}>快捷话术</button
-          >
-        </div>
         <div class="section-label">
           {app.browseKind === 'quick' ? '快捷问答' : '流程入口'}
           <span>{choices.length}</span>
         </div>
         {#each choices as entry}<button
-            class:active={app.current?.node.category === entry.node.category &&
-              app.selectedId === entry.node.id}
+            class:active={app.selectedId === entry.node.id}
             onclick={() => app.select(entry.node.id, true)}
             ><span class="flow-list-icon"
               >{#if app.browseKind === 'quick'}<MessageSquare
                   size={17}
                 />{:else}<GitBranch size={17} />{/if}</span
             ><span
-              >{entry.node.title}<small>{entry.node.category || '未分类'}</small
+              >{entry.node.title}<small
+                >{entry.node.kind === 'quick'
+                  ? entry.node.category || '未分类'
+                  : app.flows.find((f) => f.id === entry.node.flowId)
+                      ?.name}</small
               ></span
             ><ChevronRight size={14} /></button
           >{/each}
@@ -181,7 +216,9 @@
       {#if node}
         <div class="conversation-top">
           <span class="eyebrow"
-            >{scriptKindName(node.kind)} · {node.category || '沟通话术'}</span
+            >{scriptKindName(node.kind)} · {node.kind === 'quick'
+              ? node.category || '沟通话术'
+              : app.flows.find((f) => f.id === node.flowId)?.name}</span
           >
           <div class="inline-actions">
             {#if node.kind !== 'quick'}<button
@@ -234,7 +271,9 @@
               >{/each}
           </div>{/if}
         <div class="reply-card">
-          <div class="section-label">发送内容 <span>{app.language}</span></div>
+          <div class="section-label">
+            发送内容 <span>{languageName(app.language)}</span>
+          </div>
           {#if preview?.languageMissing}<p class="missing-language">
               尚未维护此语言版本，请选择其他语言或编辑话术。
             </p>{:else}<p class="reply-text">{preview?.text}</p>{/if}

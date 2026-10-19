@@ -354,6 +354,7 @@ pub fn scripts_from_rows(
             }
         };
         let n = ScriptNode {
+            flow_id: None,
             id,
             title,
             question: get("question"),

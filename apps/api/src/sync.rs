@@ -70,14 +70,16 @@ pub async fn fetch_manifest(state: &AppState, address: &str) -> Result<Manifest>
             return Err(Error::invalid("资料清单超过大小限制"));
         }
     }
-    let manifest: Manifest = serde_json::from_slice(&bytes)?;
-    if manifest.format_version != 1
+    let mut manifest: Manifest = serde_json::from_slice(&bytes)?;
+    manifest.upgrade();
+    if manifest.format_version != 2
         || manifest.version < 1
         || uuid::Uuid::parse_str(&manifest.group_id).is_err()
     {
         return Err(Error::invalid("管理员资料清单无效"));
     }
     validate_manifest_content(&manifest.nodes, &manifest.materials)?;
+    crate::db::validate_flow_membership(&manifest.nodes, &manifest.flows)?;
     Ok(manifest)
 }
 

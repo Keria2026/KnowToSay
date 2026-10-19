@@ -42,6 +42,12 @@ async fn create_admin(root: &std::path::Path) -> AppState {
             .0,
         StatusCode::OK
     );
+    s.save_flow(Flow {
+        id: "test-flow".into(),
+        name: "测试流程".into(),
+    })
+    .await
+    .unwrap();
     s
 }
 fn node(id: &str, text: &str) -> ScriptNode {
@@ -51,6 +57,7 @@ fn node(id: &str, text: &str) -> ScriptNode {
         question: "测试问题".into(),
         category: "测试".into(),
         kind: ScriptKind::Flow,
+        flow_id: Some("test-flow".into()),
         is_entry: true,
         replies: BTreeMap::from([("ko".into(), text.into())]),
         variables: vec![],
@@ -435,7 +442,8 @@ async fn excel_template_import_is_idempotent_and_searches_beyond_preview() {
         .await
         .unwrap()
         .remove(0);
-    let payload = json!({"materialId":material.id,"mapping":{},"preview":false});
+    let payload =
+        json!({"materialId":material.id,"mapping":{},"preview":false,"flowId":"test-flow"});
     for _ in 0..2 {
         let (status, nodes) = local(&state, "POST", "/scripts/import", payload.clone()).await;
         assert_eq!(status, StatusCode::OK);
@@ -728,6 +736,7 @@ async fn flow_and_quick_scripts_stay_distinct_and_personal_quick_replies_survive
     });
     let mut quick = node("quick-price", "价格说明");
     quick.kind = ScriptKind::Quick;
+    quick.flow_id = None;
     quick.is_entry = false;
     admin.save_node(terminal.clone()).await.unwrap();
     admin.save_node(root.clone()).await.unwrap();
@@ -943,5 +952,463 @@ async fn graph_batch_save_is_atomic_and_personal_layout_and_connections_survive_
             .unwrap()
             .len(),
         0
+    );
+}
+
+#[tokio::test]
+async fn named_flows_preserve_empty_pages_sync_packages_and_backups() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let empty = Flow {
+        id: "empty".into(),
+        name: "售后咨询".into(),
+    };
+    assert_eq!(
+        local(&admin, "PUT", "/flows/empty", json!(empty)).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        local(
+            &admin,
+            "PUT",
+            "/flows/duplicate",
+            json!({"id":"duplicate","name":" 售后咨询 "})
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let release = admin.publish().await.unwrap();
+    assert_eq!(release.flows.len(), 2);
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sales.apply(&release, "").await.unwrap();
+    assert!(sales.snapshot().await.unwrap().flows.contains(&empty));
+    let package = backup::export_package(&admin, None).await.unwrap();
+    let offline = AppState::open(dir.path().join("offline")).await.unwrap();
+    backup::import_package(&offline, &package.path)
+        .await
+        .unwrap();
+    assert!(offline.snapshot().await.unwrap().flows.contains(&empty));
+    let saved = backup::backup(&admin, None).await.unwrap();
+    let restored = AppState::open(dir.path().join("restored")).await.unwrap();
+    backup::restore(&restored, &saved.path).await.unwrap();
+    assert!(restored.snapshot().await.unwrap().flows.contains(&empty));
+    assert!(restored.latest().await.unwrap().flows.contains(&empty));
+    let reopened = AppState::open(&*restored.root).await.unwrap();
+    assert!(reopened.snapshot().await.unwrap().flows.contains(&empty));
+}
+
+#[tokio::test]
+async fn flow_boundaries_and_personal_flow_names_survive_official_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("a")).await;
+    admin
+        .save_flow(Flow {
+            id: "second".into(),
+            name: "第二流程".into(),
+        })
+        .await
+        .unwrap();
+    let first = node("first", "主库回复");
+    let mut second = node("second-step", "第二页回复");
+    second.flow_id = Some("second".into());
+    admin
+        .save_nodes(vec![first.clone(), second.clone()])
+        .await
+        .unwrap();
+    let mut invalid = first.clone();
+    invalid.branches.push(Branch {
+        id: "cross".into(),
+        label: "跨页连接".into(),
+        target_id: second.id.clone(),
+    });
+    assert!(admin.save_node(invalid).await.is_err());
+    let release = admin.publish().await.unwrap();
+    let sales = AppState::open(dir.path().join("s")).await.unwrap();
+    sales.apply(&release, "").await.unwrap();
+    let private_name = Flow {
+        id: "test-flow".into(),
+        name: "我的咨询流程".into(),
+    };
+    sales.save_flow(private_name.clone()).await.unwrap();
+    let mut personal = first.clone();
+    personal.replies.insert("ko".into(), "个人回复".into());
+    sales.save_node(personal.clone()).await.unwrap();
+    let own_empty = Flow {
+        id: "personal-empty".into(),
+        name: "个人空流程".into(),
+    };
+    sales.save_flow(own_empty.clone()).await.unwrap();
+    let personal_backup = knowtosay::personal::export(&sales, None).await.unwrap();
+    admin
+        .save_flow(Flow {
+            id: "test-flow".into(),
+            name: "官方新流程名".into(),
+        })
+        .await
+        .unwrap();
+    admin.save_node(node("first", "官方新回复")).await.unwrap();
+    let updated = admin.publish().await.unwrap();
+    sales.apply(&updated, "").await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert!(snapshot.flows.contains(&private_name));
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .find(|r| r.node.id == "first")
+            .unwrap()
+            .node,
+        personal
+    );
+    let new_sales = AppState::open(dir.path().join("new-s")).await.unwrap();
+    new_sales.apply(&updated, "").await.unwrap();
+    knowtosay::personal::import(&new_sales, &personal_backup.path)
+        .await
+        .unwrap();
+    let restored = new_sales.snapshot().await.unwrap();
+    assert!(restored.flows.contains(&private_name));
+    assert!(restored.flows.contains(&own_empty));
+    // An official flow that was removed remains named when personal nodes depend on it.
+    sqlx::query("DELETE FROM draft_nodes WHERE id='first'")
+        .execute(&admin.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM draft_flows WHERE id='test-flow'")
+        .execute(&admin.pool)
+        .await
+        .unwrap();
+    sales
+        .apply(&admin.publish().await.unwrap(), "")
+        .await
+        .unwrap();
+    assert!(
+        sales
+            .snapshot()
+            .await
+            .unwrap()
+            .flows
+            .contains(&private_name)
+    );
+    assert!(
+        sales
+            .snapshot()
+            .await
+            .unwrap()
+            .nodes
+            .iter()
+            .any(|r| r.node == personal)
+    );
+}
+
+#[tokio::test]
+async fn single_canvas_migration_keeps_ids_edges_positions_and_personal_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let migrations = dir.path().join("old-migrations");
+    tokio::fs::create_dir(&migrations).await.unwrap();
+    for (name, sql) in [
+        (
+            "0001_initial.sql",
+            include_str!("../migrations/0001_initial.sql"),
+        ),
+        (
+            "0002_material_search.sql",
+            include_str!("../migrations/0002_material_search.sql"),
+        ),
+        (
+            "0003_material_categories.sql",
+            include_str!("../migrations/0003_material_categories.sql"),
+        ),
+    ] {
+        tokio::fs::write(migrations.join(name), sql).await.unwrap();
+    }
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(dir.path().join("workspace.sqlite"))
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::migrate::Migrator::new(migrations.as_path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap();
+    let workspace = Workspace {
+        group_id: uuid::Uuid::new_v4().to_string(),
+        name: "旧工作组".into(),
+        role: Role::Admin,
+        version: 1,
+        admin_address: None,
+    };
+    sqlx::query("INSERT INTO workspace(id,json) VALUES(1,?)")
+        .bind(serde_json::to_string(&workspace).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut original = node("old", "原有回复");
+    original.position = Some(Position {
+        x: -123.0,
+        y: 456.0,
+    });
+    original.branches.push(Branch {
+        id: "loop".into(),
+        label: "重新确认".into(),
+        target_id: "old".into(),
+    });
+    let mut old = json!(original);
+    old.as_object_mut().unwrap().remove("flowId");
+    old.as_object_mut().unwrap().remove("kind");
+    for table in [
+        "draft_nodes",
+        "official_nodes",
+        "personal_nodes",
+        "personal_dependencies",
+    ] {
+        sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES('old',?)"))
+            .bind(old.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let release = json!({"formatVersion":1,"groupId":workspace.group_id,"groupName":workspace.name,"version":1,"nodes":[old],"materials":[],"materialCategories":[]});
+    sqlx::query("INSERT INTO releases(version,json) VALUES(1,?)")
+        .bind(release.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let state = AppState::open(dir.path()).await.unwrap();
+    original.flow_id = Some("legacy-flow".into());
+    for table in [
+        "draft_nodes",
+        "official_nodes",
+        "personal_nodes",
+        "personal_dependencies",
+    ] {
+        assert_eq!(
+            state.list::<ScriptNode>(table).await.unwrap(),
+            vec![original.clone()]
+        );
+    }
+    for table in [
+        "draft_flows",
+        "official_flows",
+        "personal_flows",
+        "personal_flow_dependencies",
+    ] {
+        assert_eq!(state.list::<Flow>(table).await.unwrap()[0].name, "原有流程");
+    }
+    let latest = state.latest().await.unwrap();
+    assert_eq!(latest.format_version, 2);
+    assert_eq!(latest.nodes, vec![original]);
+    assert_eq!(latest.flows[0].id, "legacy-flow");
+}
+
+#[tokio::test]
+async fn quick_categories_preserve_empty_groups_and_personal_content_across_transfers() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    admin
+        .save_node(node("flow", "流程分类不应成为快捷分类"))
+        .await
+        .unwrap();
+    admin.publish().await.unwrap();
+    assert!(admin.snapshot().await.unwrap().quick_categories.is_empty());
+    assert_eq!(
+        local(
+            &admin,
+            "POST",
+            "/quick-categories",
+            json!({"name":" 售后答疑 "})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(admin.snapshot().await.unwrap().draft_dirty);
+    for name in ["售后答疑", "未分类"] {
+        assert_eq!(
+            local(&admin, "POST", "/quick-categories", json!({"name":name}))
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+    }
+    for name in [" ", "非法\n分类", &"长".repeat(81)] {
+        assert_eq!(
+            local(&admin, "POST", "/quick-categories", json!({"name":name}))
+                .await
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let mut quick = node("quick", "한국어 답변");
+    quick.kind = ScriptKind::Quick;
+    quick.flow_id = None;
+    quick.is_entry = false;
+    quick.category = "产品咨询".into();
+    admin.save_node(quick.clone()).await.unwrap();
+    // Updating an existing node into an already registered category must not violate triggers.
+    quick.question = "更新问题".into();
+    admin.save_node(quick.clone()).await.unwrap();
+    let release = admin.publish().await.unwrap();
+    assert_eq!(release.quick_categories, vec!["产品咨询", "售后答疑"]);
+    assert!(!admin.snapshot().await.unwrap().draft_dirty);
+    let address = server(admin.clone(), None).await;
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    assert_eq!(
+        sales.snapshot().await.unwrap().quick_categories,
+        release.quick_categories
+    );
+    let package = backup::export_package(&admin, None).await.unwrap();
+    let offline = AppState::open(dir.path().join("offline")).await.unwrap();
+    backup::import_package(&offline, &package.path)
+        .await
+        .unwrap();
+    assert_eq!(
+        offline.snapshot().await.unwrap().quick_categories,
+        release.quick_categories
+    );
+    let saved = backup::backup(&admin, None).await.unwrap();
+    admin.create_quick_category("备份之后新增").await.unwrap();
+    backup::restore(&admin, &saved.path).await.unwrap();
+    let reopened = AppState::open(&*admin.root).await.unwrap();
+    assert_eq!(
+        reopened.snapshot().await.unwrap().quick_categories,
+        release.quick_categories
+    );
+    assert_eq!(
+        reopened.latest().await.unwrap().quick_categories,
+        release.quick_categories
+    );
+    sales.create_quick_category("个人空分类").await.unwrap();
+    quick.category = "我的客户".into();
+    quick.replies.insert("ko".into(), "내 답변".into());
+    sales.save_node(quick.clone()).await.unwrap();
+    let personal = knowtosay::personal::export(&sales, None).await.unwrap();
+    admin.create_quick_category("管理员新增").await.unwrap();
+    admin.publish().await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert!(snapshot.quick_categories.contains(&"个人空分类".into()));
+    assert!(snapshot.quick_categories.contains(&"我的客户".into()));
+    assert!(snapshot.quick_categories.contains(&"管理员新增".into()));
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .find(|r| r.node.id == quick.id)
+            .unwrap()
+            .node,
+        quick
+    );
+    knowtosay::personal::import(&offline, &personal.path)
+        .await
+        .unwrap();
+    assert!(
+        offline
+            .snapshot()
+            .await
+            .unwrap()
+            .quick_categories
+            .contains(&"个人空分类".into())
+    );
+    assert_eq!(
+        offline
+            .snapshot()
+            .await
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|r| r.node.id == quick.id)
+            .unwrap()
+            .node,
+        quick
+    );
+    // Older manifests derive occupied categories from their quick nodes.
+    let mut legacy = serde_json::to_value(&release).unwrap();
+    legacy.as_object_mut().unwrap().remove("quickCategories");
+    let old: Manifest = serde_json::from_value(legacy).unwrap();
+    let previous = AppState::open(dir.path().join("previous")).await.unwrap();
+    previous.apply(&old, "").await.unwrap();
+    assert_eq!(
+        previous.snapshot().await.unwrap().quick_categories,
+        vec!["产品咨询"]
+    );
+}
+
+#[tokio::test]
+async fn quick_category_migration_preserves_existing_node_names_in_all_scopes() {
+    let dir = tempfile::tempdir().unwrap();
+    let migrations = dir.path().join("old-migrations");
+    tokio::fs::create_dir(&migrations).await.unwrap();
+    for (name, sql) in [
+        (
+            "0001_initial.sql",
+            include_str!("../migrations/0001_initial.sql"),
+        ),
+        (
+            "0002_material_search.sql",
+            include_str!("../migrations/0002_material_search.sql"),
+        ),
+        (
+            "0003_material_categories.sql",
+            include_str!("../migrations/0003_material_categories.sql"),
+        ),
+        (
+            "0004_named_flows.sql",
+            include_str!("../migrations/0004_named_flows.sql"),
+        ),
+    ] {
+        tokio::fs::write(migrations.join(name), sql).await.unwrap();
+    }
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(dir.path().join("workspace.sqlite"))
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::migrate::Migrator::new(migrations.as_path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap();
+    let mut quick = node("old-quick", "이전 답변");
+    quick.kind = ScriptKind::Quick;
+    quick.flow_id = None;
+    quick.is_entry = false;
+    quick.category = " 原有分类 ".into();
+    for table in [
+        "draft_nodes",
+        "official_nodes",
+        "personal_nodes",
+        "personal_dependencies",
+    ] {
+        sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?)"))
+            .bind(&quick.id)
+            .bind(serde_json::to_string(&quick).unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    pool.close().await;
+    let state = AppState::open(dir.path()).await.unwrap();
+    for table in [
+        "draft_quick_categories",
+        "official_quick_categories",
+        "personal_quick_categories",
+    ] {
+        assert_eq!(state.list::<String>(table).await.unwrap(), vec!["原有分类"]);
+    }
+    assert_eq!(
+        state.list::<ScriptNode>("draft_nodes").await.unwrap()[0],
+        quick
     );
 }

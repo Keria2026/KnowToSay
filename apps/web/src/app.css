@@ -1240,16 +1240,6 @@ main {
   background: white;
   padding-bottom: 12px;
 }
-.svelte-flow__node-default {
-  box-shadow: none !important;
-  border: 1px solid var(--line) !important;
-  border-radius: var(--radius-sm) !important;
-  background: white !important;
-  font-family: inherit !important;
-  font-size: var(--text-caption) !important;
-  padding: 16px !important;
-  width: 190px !important;
-}
 .svelte-flow__node.selected {
   border: 2px solid var(--blue) !important;
   box-shadow: none !important;
@@ -2668,16 +2658,6 @@ summary {
 .script-type-tabs button span {
   color: var(--muted);
 }
-.compact-tabs {
-  flex-wrap: nowrap;
-  gap: 4px;
-  margin-bottom: 24px;
-}
-.compact-tabs button {
-  flex: 1;
-  padding: 8px 6px;
-  white-space: nowrap;
-}
 .script-library-panel {
   background: var(--pearl);
   min-width: 0;
@@ -2797,23 +2777,177 @@ summary {
 .branch-dialog .dialog-header h2 {
   font-size: 28px;
 }
-.flow-branch-label,
-.flow-branch-text {
-  background: var(--canvas);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  padding: 8px 12px;
-  font-size: var(--text-caption);
-  white-space: nowrap;
-}
-.flow-branch-label {
-  color: var(--blue);
-}
-.flow-branch-text {
-  color: var(--muted);
-}
 @media (max-width: 900px) {
   .script-library-list {
     height: 400px;
   }
+}
+
+.named-flow-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--canvas);
+  min-width: 0;
+}
+.named-flow-bar > .button-row {
+  flex-shrink: 0;
+}
+.named-flow-tabs {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.named-flow-tabs button {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--blue);
+  background: var(--canvas);
+  white-space: nowrap;
+}
+.named-flow-tabs button.active {
+  background: var(--blue);
+  color: var(--canvas);
+  border-color: var(--blue);
+}
+.flow-name-dialog {
+  max-width: 520px;
+}
+.flow-name-dialog form {
+  padding: 24px;
+}
+.flow-name-dialog .dialog-header h2 {
+  font-size: 28px;
+}
+.flow-name-dialog label {
+  margin: 17px 0;
+}
+
+.svelte-flow__node-step {
+  width: 240px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  font-size: var(--text-caption);
+}
+.flow-step {
+  position: relative;
+}
+.flow-step-title {
+  height: 56px;
+  padding: 17px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flow-step-branch {
+  height: 44px;
+  border-top: 1px solid var(--soft-line);
+  display: flex;
+  align-items: center;
+}
+.flow-step-branch button,
+.flow-step-branch > span {
+  display: block;
+  width: 100%;
+  padding: 10px 17px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flow-step-branch button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
+  color: var(--blue);
+  background: none;
+}
+.flow-step-footer {
+  height: 44px;
+  padding: 10px 17px;
+  border-top: 1px solid var(--soft-line);
+  color: var(--muted);
+}
+
+.compact-page-picker {
+  flex: 1;
+  min-width: 0;
+  max-width: 180px;
+  margin: 0 auto 0 0;
+}
+.compact-page-picker select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: var(--text-caption);
+}
+.compact .library-page,
+.compact .scripts-page,
+.compact .settings-page {
+  padding: 20px;
+}
+.compact .page-heading {
+  flex-direction: column;
+  align-items: stretch;
+}
+.compact .page-heading > .button-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+}
+.compact .named-flow-bar {
+  flex-wrap: wrap;
+}
+.compact .graph-toolbar {
+  flex-wrap: wrap;
+}
+.named-flow-tabs button.drop-target {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.flow-order-list {
+  list-style: none;
+  padding: 0;
+  margin: 17px 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.flow-order-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.flow-order-list li > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.script-navigation {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.script-navigation .script-type-tabs {
+  padding: 12px 18px;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+}
+.script-navigation .named-flow-bar {
+  border-bottom: 0;
+  min-height: 72px;
 }

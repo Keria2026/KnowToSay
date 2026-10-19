@@ -31,6 +31,8 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/group/address", put(update_address))
         .route("/api/v1/scripts/{id}", put(save_node).delete(delete_node))
         .route("/api/v1/scripts", put(save_nodes))
+        .route("/api/v1/flows/{id}", put(save_flow))
+        .route("/api/v1/quick-categories", post(create_quick_category))
         .route("/api/v1/scripts/{id}/reset", post(reset_node))
         .route("/api/v1/scripts/import", post(import_scripts))
         .route("/api/v1/materials", post(save_material))
@@ -194,6 +196,19 @@ pub async fn update_address(
     Ok(Json(w))
 }
 
+#[utoipa::path(put,path="/api/v1/flows/{id}",request_body=Flow,params(("id"=String,Path)),responses((status=200,body=Snapshot)))]
+pub async fn save_flow(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(flow): Json<Flow>,
+) -> Result<Json<Snapshot>> {
+    if id != flow.id {
+        return Err(Error::invalid("流程标识不匹配"));
+    }
+    state.save_flow(flow).await?;
+    Ok(Json(state.snapshot().await?))
+}
+
 #[utoipa::path(put,path="/api/v1/scripts/{id}",request_body=ScriptNode,params(("id"=String,Path)),responses((status=200,body=Snapshot)))]
 pub async fn save_node(
     State(state): State<AppState>,
@@ -275,6 +290,7 @@ pub async fn reset_node(
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportScripts {
+    pub flow_id: Option<String>,
     pub material_id: String,
     pub mapping: BTreeMap<String, String>,
     pub preview: bool,
@@ -292,7 +308,12 @@ pub async fn import_scripts(
         .into_iter()
         .find(|m| m.id == input.material_id)
         .ok_or_else(|| Error::missing("请选择已导入的 Excel 素材"))?;
-    let nodes = files::scripts_from_rows(&m.rows, &input.mapping)?;
+    let mut nodes = files::scripts_from_rows(&m.rows, &input.mapping)?;
+    for node in &mut nodes {
+        if node.kind == ScriptKind::Flow {
+            node.flow_id = input.flow_id.clone();
+        }
+    }
     let mut effective: BTreeMap<_, _> = state
         .list::<ScriptNode>("draft_nodes")
         .await?
@@ -300,7 +321,9 @@ pub async fn import_scripts(
         .map(|n| (n.id.clone(), n))
         .collect();
     effective.extend(nodes.iter().cloned().map(|n| (n.id.clone(), n)));
-    crate::db::validate_script_kinds(&effective.into_values().collect::<Vec<_>>())?;
+    let effective: Vec<_> = effective.into_values().collect();
+    crate::db::validate_script_kinds(&effective)?;
+    crate::db::validate_flow_membership(&effective, &state.list::<Flow>("draft_flows").await?)?;
     if !input.preview {
         let mut tx = state.pool.begin().await?;
         for node in &nodes {
@@ -342,6 +365,15 @@ pub async fn save_material(
         .put("draft_materials", &material.id, &material)
         .await?;
     drop(_guard);
+    Ok(Json(state.snapshot().await?))
+}
+
+#[utoipa::path(post,path="/api/v1/quick-categories",request_body=CreateQuickCategory,responses((status=200,body=Snapshot)))]
+pub async fn create_quick_category(
+    State(state): State<AppState>,
+    Json(input): Json<CreateQuickCategory>,
+) -> Result<Json<Snapshot>> {
+    state.create_quick_category(&input.name).await?;
     Ok(Json(state.snapshot().await?))
 }
 
@@ -510,6 +542,12 @@ pub async fn demo(State(state): State<AppState>) -> Result<Json<Snapshot>> {
     if !state.list::<ScriptNode>("draft_nodes").await?.is_empty() {
         return Err(Error::conflict("示例仅可添加到空的话术库"));
     }
+    state
+        .save_flow(Flow {
+            id: "demo-flow".into(),
+            name: "销售入门（示例）".into(),
+        })
+        .await?;
     let material = Material {
         id: "demo-intro".into(),
         name: "产品介绍（示例）".into(),
@@ -579,8 +617,9 @@ pub async fn demo(State(state): State<AppState>) -> Result<Json<Snapshot>> {
             id: id.into(),
             title: title.into(),
             question: question.into(),
-            category: "销售入门（示例）".into(),
+            category: String::new(),
             kind: ScriptKind::Flow,
+            flow_id: Some("demo-flow".into()),
             is_entry: id == "demo-start",
             replies: BTreeMap::from([("zh-CN".into(), zh.into()), ("ko".into(), ko.into())]),
             variables,
