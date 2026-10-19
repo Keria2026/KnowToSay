@@ -90,7 +90,7 @@ bun run desktop:build
 
 Git 使用 `.gitattributes` 将文本文件统一检出为 LF，Prettier 同样检查 LF，避免 Windows 的 `core.autocrlf=true` 使所有前端文件在格式检查阶段失败。不得通过跳过格式检查来解决换行差异。
 
-Windows CI 在安装包构建前安装 Chromium 并执行上述浏览器回归；生产静态页面路由和快捷回复复制失败时不生成安装包。
+Windows CI 在安装包构建前安装 Chromium 并执行上述浏览器回归；生产静态页面路由和快捷回复复制失败时不生成安装包。浏览器测试失败时将日志末尾写入工作流错误注解，并保存 `ui-tests.log`、截图和 trace 至 `KnowToSay-UI-test-diagnostics`，保留 7 天。首次页面加载允许 Windows 开发服务器冷启动所需的等待时间，其余交互断言保持默认超时。
 
 ## 交付前仍需目标环境验收
 

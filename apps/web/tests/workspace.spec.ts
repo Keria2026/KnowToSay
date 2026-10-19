@@ -1,11 +1,20 @@
 import { test, expect } from '@playwright/test';
 import { resolve } from 'node:path';
 
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus) {
+    console.error('Page at failure:', await page.locator('body').innerText().catch(() => 'Page unavailable'));
+  }
+});
+
 test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜索与发布', async ({ page }, testInfo) => {
   const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', error => {
+    errors.push(error.message);
+    console.error('Browser error:', error.message);
+  });
   await page.goto('/');
-  await expect(page.getByRole('heading',{name:'连接你的工作组'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'连接你的工作组'})).toBeVisible({timeout:20_000});
   await page.getByRole('button',{name:'创建工作组',exact:true}).click();
   await page.getByLabel('工作组名称').fill('销售验收工作组');
   await page.getByRole('button',{name:'创建并进入工作台'}).click();
