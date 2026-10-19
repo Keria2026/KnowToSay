@@ -180,6 +180,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/quick-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_quick_category"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scripts": {
         parameters: {
             query?: never;
@@ -316,6 +332,9 @@ export interface components {
         CreateMaterialCategory: {
             name: string;
         };
+        CreateQuickCategory: {
+            name: string;
+        };
         DesktopPreferences: {
             copyHides: boolean;
             /** Format: int64 */
@@ -361,6 +380,7 @@ export interface components {
             materialCategories?: string[];
             materials: components["schemas"]["Material"][];
             nodes: components["schemas"]["ScriptNode"][];
+            quickCategories?: string[];
             /** Format: int64 */
             version: number;
         };
@@ -438,6 +458,7 @@ export interface components {
             materialCategories?: string[];
             materials: components["schemas"]["Material"][];
             nodes: components["schemas"]["NodeRecord"][];
+            quickCategories?: string[];
             workspace?: null | components["schemas"]["Workspace"];
         };
         SyncStatus: {
@@ -712,6 +733,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Manifest"];
+                };
+            };
+        };
+    };
+    create_quick_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateQuickCategory"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
                 };
             };
         };

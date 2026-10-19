@@ -136,6 +136,8 @@ pub struct Snapshot {
     pub materials: Vec<Material>,
     #[serde(default)]
     pub material_categories: Vec<String>,
+    #[serde(default)]
+    pub quick_categories: Vec<String>,
     pub draft_dirty: bool,
 }
 
@@ -152,11 +154,19 @@ pub struct Manifest {
     pub materials: Vec<Material>,
     #[serde(default)]
     pub material_categories: Vec<String>,
+    #[serde(default)]
+    pub quick_categories: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateMaterialCategory {
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateQuickCategory {
     pub name: String,
 }
 

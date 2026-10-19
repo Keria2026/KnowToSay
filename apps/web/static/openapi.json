@@ -339,6 +339,36 @@
         }
       }
     },
+    "/api/v1/quick-categories": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "create_quick_category",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateQuickCategory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/scripts": {
       "put": {
         "tags": [
@@ -615,6 +645,17 @@
           }
         }
       },
+      "CreateQuickCategory": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "DesktopPreferences": {
         "type": "object",
         "required": [
@@ -799,6 +840,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ScriptNode"
+            }
+          },
+          "quickCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "version": {
@@ -1129,6 +1176,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/NodeRecord"
+            }
+          },
+          "quickCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "workspace": {

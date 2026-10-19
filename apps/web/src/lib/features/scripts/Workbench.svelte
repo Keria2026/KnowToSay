@@ -22,10 +22,11 @@
     newNode,
     scriptKindName,
     languageName,
+    quickCategoryName,
   } from '$lib/utils/scripts';
   import type { Material, Snapshot, ScriptKind } from '$lib/types';
   import FlowCanvas from './FlowCanvas.svelte';
-  import FlowTabs from './FlowTabs.svelte';
+  import ScriptNavigation from './ScriptNavigation.svelte';
   let node = $derived(app.current?.node);
   let showFlow = $state(false);
   let completeFlow = $derived(
@@ -63,7 +64,13 @@
     ),
   );
   let entries = $derived(flows.filter((n) => n.node.isEntry));
-  let quick = $derived(app.nodes.filter((n) => n.node.kind === 'quick'));
+  let quick = $derived(
+    app.nodes.filter(
+      (n) =>
+        n.node.kind === 'quick' &&
+        quickCategoryName(n.node) === app.activeQuickCategory,
+    ),
+  );
   let choices = $derived(
     app.browseKind === 'quick' ? quick : entries.length ? entries : flows,
   );
@@ -79,6 +86,10 @@
       app.history = [];
     }
   }
+  function switchCategory(name: string) {
+    app.quickCategory = name;
+    browse('quick');
+  }
   function browse(kind: ScriptKind) {
     app.browseKind = kind;
     const first = kind === 'quick' ? quick[0] : entries[0] || flows[0];
@@ -93,12 +104,26 @@
       kind
     ] || FileText;
   function add() {
-    app.freshNode = app.activeFlowId ? newNode('flow', app.activeFlowId) : null;
+    app.freshNode =
+      app.browseKind === 'quick'
+        ? newNode('quick')
+        : app.activeFlowId
+          ? newNode('flow', app.activeFlowId)
+          : null;
+    if (app.freshNode?.kind === 'quick')
+      app.freshNode.category = app.activeQuickCategory;
     app.editorId = '';
-    app.editorKind = 'flow';
+    app.editorKind = app.browseKind;
     app.nav = 'scripts';
   }
 </script>
+
+<ScriptNavigation
+  kind={app.browseKind}
+  onkind={browse}
+  onflow={switchFlow}
+  oncategory={switchCategory}
+/>
 
 {#if !app.nodes.length}
   <div class="empty-workspace">
@@ -129,10 +154,6 @@
       </p>{/if}
   </div>
 {:else}
-  {#if app.browseKind === 'flow'}<FlowTabs
-      selectedId={app.activeFlowId}
-      onselect={switchFlow}
-    />{/if}
   <div class:compact-workbench={app.compact} class="workbench-grid">
     {#if showFlow && node && node.kind !== 'quick'}
       <section class="workbench-flow-overview" aria-label="完整流程预览">
@@ -157,24 +178,6 @@
       </section>
     {/if}
     {#if !app.compact}<aside class="flow-list">
-        <div
-          class="script-type-tabs compact-tabs"
-          role="tablist"
-          aria-label="工作台话术类型"
-        >
-          <button
-            role="tab"
-            aria-selected={app.browseKind === 'flow'}
-            class:active={app.browseKind === 'flow'}
-            onclick={() => browse('flow')}>流程话术</button
-          >
-          <button
-            role="tab"
-            aria-selected={app.browseKind === 'quick'}
-            class:active={app.browseKind === 'quick'}
-            onclick={() => browse('quick')}>快捷话术</button
-          >
-        </div>
         <div class="section-label">
           {app.browseKind === 'quick' ? '快捷问答' : '流程入口'}
           <span>{choices.length}</span>

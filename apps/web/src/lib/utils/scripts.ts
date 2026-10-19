@@ -102,3 +102,6 @@ export const kindName = (kind: string) =>
 
 export const scriptKindName = (kind: ScriptNode['kind']) =>
   kind === 'quick' ? '快捷话术' : '流程话术';
+
+export const quickCategoryName = (node: Pick<ScriptNode, 'category'>) =>
+  node.category.trim() || '未分类';

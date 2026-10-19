@@ -32,6 +32,7 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/scripts/{id}", put(save_node).delete(delete_node))
         .route("/api/v1/scripts", put(save_nodes))
         .route("/api/v1/flows/{id}", put(save_flow))
+        .route("/api/v1/quick-categories", post(create_quick_category))
         .route("/api/v1/scripts/{id}/reset", post(reset_node))
         .route("/api/v1/scripts/import", post(import_scripts))
         .route("/api/v1/materials", post(save_material))
@@ -364,6 +365,15 @@ pub async fn save_material(
         .put("draft_materials", &material.id, &material)
         .await?;
     drop(_guard);
+    Ok(Json(state.snapshot().await?))
+}
+
+#[utoipa::path(post,path="/api/v1/quick-categories",request_body=CreateQuickCategory,responses((status=200,body=Snapshot)))]
+pub async fn create_quick_category(
+    State(state): State<AppState>,
+    Json(input): Json<CreateQuickCategory>,
+) -> Result<Json<Snapshot>> {
+    state.create_quick_category(&input.name).await?;
     Ok(Json(state.snapshot().await?))
 }
 

@@ -15,7 +15,12 @@
   } from 'lucide-svelte';
   import { app } from '../workspace/store.svelte';
   import { api } from '../workspace/api';
-  import { newNode, languageName, searchScripts } from '$lib/utils/scripts';
+  import {
+    newNode,
+    languageName,
+    searchScripts,
+    quickCategoryName,
+  } from '$lib/utils/scripts';
   import type {
     ScriptNode,
     ScriptKind,
@@ -24,7 +29,7 @@
     SaveScripts,
   } from '$lib/types';
   import FlowCanvas from './FlowCanvas.svelte';
-  import FlowTabs from './FlowTabs.svelte';
+  import ScriptNavigation from './ScriptNavigation.svelte';
   import BilingualReplies from './BilingualReplies.svelte';
   import { layoutFlow } from './flow';
   type Point = { x: number; y: number };
@@ -51,7 +56,12 @@
   let draft = $derived(drafts[app.editorId] || null);
   let current = $derived(originals.get(app.editorId));
   let quickNodes = $derived(records.filter((r) => r.node.kind === 'quick'));
-  let filteredQuick = $derived(searchScripts(quickNodes, quickQuery));
+  let categoryQuickNodes = $derived(
+    quickNodes.filter(
+      (r) => quickCategoryName(r.node) === app.activeQuickCategory,
+    ),
+  );
+  let filteredQuick = $derived(searchScripts(categoryQuickNodes, quickQuery));
   let allFlowNodes = $derived(records.filter((r) => r.node.kind !== 'quick'));
   let flowNodes = $derived(
     allFlowNodes.filter((r) => r.node.flowId === app.activeFlowId),
@@ -65,6 +75,7 @@
   $effect(() => {
     if (app.freshNode) {
       const node = app.freshNode;
+      if (node.kind === 'quick') node.category = app.activeQuickCategory;
       if (node.kind !== 'quick' && !node.flowId)
         node.flowId = app.activeFlowId || null;
       drafts[node.id] = JSON.parse(JSON.stringify(node));
@@ -86,22 +97,29 @@
   }
   function select(id: string) {
     app.editorId = id;
-    const flowId = records.find((r) => r.node.id === id)?.node.flowId;
-    if (flowId) app.flowId = flowId;
+    const node = records.find((r) => r.node.id === id)?.node;
+    if (node?.flowId) app.flowId = node.flowId;
+    if (node?.kind === 'quick') app.quickCategory = quickCategoryName(node);
   }
   function switchFlow(id: string) {
     app.flowId = id;
     app.editorId = '';
   }
+  function switchCategory(name: string) {
+    app.quickCategory = name;
+    app.editorId = '';
+  }
   function add() {
     if (app.editorKind === 'flow' && !app.activeFlowId) return;
     const node = newNode(app.editorKind, app.activeFlowId);
+    if (node.kind === 'quick') node.category = app.activeQuickCategory;
     node.isEntry = app.editorKind === 'flow' && !flowNodes.length;
     drafts[node.id] = node;
     app.editorId = node.id;
   }
   function switchKind(kind: ScriptKind) {
     app.editorKind = kind;
+    app.browseKind = kind;
     app.editorId = '';
   }
   function changeKind(event: Event) {
@@ -128,6 +146,7 @@
     draft.flowId = next === 'flow' ? app.activeFlowId : null;
     app.editorKind = next;
     if (next === 'quick') {
+      draft.category = app.activeQuickCategory;
       draft.isEntry = false;
       draft.position = null;
     }
@@ -287,39 +306,18 @@
       >
     </div>
   </div>
-  <div class="script-type-tabs" role="tablist" aria-label="话术管理类型">
-    <button
-      role="tab"
-      disabled={!!app.busy}
-      aria-selected={app.editorKind === 'flow'}
-      class:active={app.editorKind === 'flow'}
-      onclick={() => switchKind('flow')}
-      ><GitBranch size={17} />流程话术
-      <span>{allFlowNodes.length}</span></button
-    >
-    <button
-      role="tab"
-      disabled={!!app.busy}
-      aria-selected={app.editorKind === 'quick'}
-      class:active={app.editorKind === 'quick'}
-      onclick={() => switchKind('quick')}
-      ><MessageSquare size={17} />快捷话术
-      <span>{quickNodes.length}</span></button
-    >
-  </div>
-  <p class="field-help">
-    {app.editorKind === 'flow'
-      ? '按客户回答选择分支，支持汇合与跳转。'
-      : '客户特定问题或回复对应的一对一话术，无需建立流程，可直接搜索和复制。'}
-  </p>
+  <ScriptNavigation
+    kind={app.editorKind}
+    onkind={switchKind}
+    onflow={switchFlow}
+    oncategory={switchCategory}
+    editable
+    flowCount={allFlowNodes.length}
+    quickCount={quickNodes.length}
+  />
   <div class="studio-layout">
     {#if app.editorKind === 'flow'}
       <div class="graph-panel">
-        <FlowTabs
-          selectedId={app.activeFlowId}
-          onselect={switchFlow}
-          editable
-        />
         <div class="graph-toolbar">
           <span
             ><GitBranch size={16} />{flowNodes.length} 个步骤 · {connectionCount}
@@ -407,7 +405,7 @@
           {#if !filteredQuick.length}<div class="empty">
               <MessageSquare size={32} />
               <h3>
-                {quickNodes.length
+                {categoryQuickNodes.length
                   ? '没有匹配的快捷话术'
                   : '添加第一条快捷话术'}
               </h3>
@@ -447,14 +445,20 @@
             >
             {#if draft.kind === 'quick'}
               <label
-                >分类<input
-                  bind:value={draft.category}
-                  list="script-categories"
-                /><datalist id="script-categories"
-                  >{#each [...new Set(app.nodes.map((r) => r.node.category))] as category}<option
-                      value={category}
-                    ></option>{/each}</datalist
-                ></label
+                >分类<select
+                  aria-label="分类"
+                  value={quickCategoryName(draft)}
+                  onchange={(event) => {
+                    if (draft) {
+                      draft.category = event.currentTarget.value;
+                      app.quickCategory = draft.category;
+                    }
+                  }}
+                >
+                  {#each app.quickGroups as category}<option value={category.id}
+                      >{category.name}</option
+                    >{/each}
+                </select></label
               >
             {/if}
             <label

@@ -2658,16 +2658,6 @@ summary {
 .script-type-tabs button span {
   color: var(--muted);
 }
-.compact-tabs {
-  flex-wrap: nowrap;
-  gap: 4px;
-  margin-bottom: 24px;
-}
-.compact-tabs button {
-  flex: 1;
-  padding: 8px 6px;
-  white-space: nowrap;
-}
 .script-library-panel {
   background: var(--pearl);
   min-width: 0;
@@ -2813,6 +2803,7 @@ summary {
   overflow-x: auto;
 }
 .named-flow-tabs button {
+  flex-shrink: 0;
   min-height: 44px;
   padding: 10px 18px;
   border: 1px solid var(--line);
@@ -2942,4 +2933,21 @@ summary {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.script-navigation {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.script-navigation .script-type-tabs {
+  padding: 12px 18px;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+}
+.script-navigation .named-flow-bar {
+  border-bottom: 0;
+  min-height: 72px;
 }

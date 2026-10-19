@@ -50,7 +50,8 @@
   $effect(() => {
     const group = app.workspace?.groupId;
     const flows = app.data?.flows;
-    if (group && flows) untrack(() => app.restoreFlowOrder());
+    const categories = app.data?.quickCategories;
+    if (group && flows && categories) untrack(() => app.restoreGroupOrders());
   });
   onMount(() => {
     quickSearchMode = new URLSearchParams(window.location.search).has(

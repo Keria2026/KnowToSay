@@ -1,9 +1,10 @@
-import type { Flow } from '$lib/types';
+export const groupOrderKey = (
+  groupId: string,
+  kind: 'flow' | 'quick' = 'flow',
+) =>
+  `knowtosay.${kind === 'flow' ? 'flow' : 'quick-category'}-order.${groupId}`;
 
-export const flowOrderKey = (groupId: string) =>
-  `knowtosay.flow-order.${groupId}`;
-
-export function readFlowOrder(value: string | null): string[] {
+export function readGroupOrder(value: string | null): string[] {
   try {
     const parsed: unknown = JSON.parse(value || '[]');
     return Array.isArray(parsed)
@@ -14,14 +15,20 @@ export function readFlowOrder(value: string | null): string[] {
   }
 }
 
-export function orderedFlowIds(flows: Flow[], preferred: string[]): string[] {
+export function orderedGroupIds(
+  flows: { id: string }[],
+  preferred: string[],
+): string[] {
   const available = new Set(flows.map((flow) => flow.id));
   return [
     ...new Set([...preferred.filter((id) => available.has(id)), ...available]),
   ];
 }
 
-export function orderFlows(flows: Flow[], preferred: string[]): Flow[] {
+export function orderGroups<T extends { id: string }>(
+  flows: T[],
+  preferred: string[],
+): T[] {
   const byId = new Map(flows.map((flow) => [flow.id, flow]));
-  return orderedFlowIds(flows, preferred).map((id) => byId.get(id)!);
+  return orderedGroupIds(flows, preferred).map((id) => byId.get(id)!);
 }

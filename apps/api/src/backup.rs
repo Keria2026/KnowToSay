@@ -26,6 +26,10 @@ struct BackupData {
     draft_material_categories: Vec<String>,
     #[serde(default)]
     official_material_categories: Vec<String>,
+    #[serde(default)]
+    draft_quick_categories: Vec<String>,
+    #[serde(default)]
+    official_quick_categories: Vec<String>,
     releases: Vec<Manifest>,
 }
 
@@ -116,6 +120,8 @@ pub async fn backup(state: &AppState, requested: Option<String>) -> Result<FileR
         official_materials: state.list("official_materials").await?,
         draft_material_categories: state.list("draft_material_categories").await?,
         official_material_categories: state.list("official_material_categories").await?,
+        draft_quick_categories: state.list("draft_quick_categories").await?,
+        official_quick_categories: state.list("official_quick_categories").await?,
         releases: releases
             .into_iter()
             .map(|s| serde_json::from_str(&s))
@@ -263,8 +269,15 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
         flows: data.official_flows.clone(),
         materials: data.official_materials.clone(),
         material_categories: data.official_material_categories.clone(),
+        quick_categories: data.official_quick_categories.clone(),
     };
     let mut tx = state.pool.begin().await?;
+    sqlx::query("DELETE FROM draft_quick_categories")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM official_quick_categories")
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("DELETE FROM draft_material_categories")
         .execute(&mut *tx)
         .await?;
@@ -328,6 +341,8 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
         }
     }
     for (table, categories) in [
+        ("draft_quick_categories", &data.draft_quick_categories),
+        ("official_quick_categories", &data.official_quick_categories),
         ("draft_material_categories", &data.draft_material_categories),
         (
             "official_material_categories",

@@ -104,10 +104,12 @@ impl AppState {
                 flows: vec![],
                 materials: vec![],
                 material_categories: vec![],
+                quick_categories: vec![],
                 draft_dirty: false,
             });
         };
         let flows = self.effective_flows(&workspace.role).await?;
+        let quick_categories = self.quick_categories(&workspace.role).await?;
         let official = self.list::<ScriptNode>("official_nodes").await?;
         let official_map: BTreeMap<_, _> = official
             .iter()
@@ -132,7 +134,9 @@ impl AppState {
             let n = self.list::<ScriptNode>("draft_nodes").await?;
             let m = self.list::<Material>("draft_materials").await?;
             let categories = self.list::<String>("draft_material_categories").await?;
-            let dirty = flows != self.list::<Flow>("official_flows").await?
+            let dirty = quick_categories
+                != self.list::<String>("official_quick_categories").await?
+                || flows != self.list::<Flow>("official_flows").await?
                 || n != official
                 || m != self.list::<Material>("official_materials").await?
                 || categories != official_categories;
@@ -181,6 +185,7 @@ impl AppState {
             flows,
             materials,
             material_categories,
+            quick_categories,
             draft_dirty: dirty,
         })
     }
@@ -207,6 +212,43 @@ impl AppState {
             return Err(Error::conflict("此分类已存在"));
         }
         Ok(())
+    }
+    pub async fn quick_categories(&self, role: &Role) -> Result<Vec<String>> {
+        let tables = if *role == Role::Admin {
+            vec!["draft_quick_categories"]
+        } else {
+            vec!["official_quick_categories", "personal_quick_categories"]
+        };
+        let mut categories = BTreeSet::new();
+        for table in tables {
+            categories.extend(self.list::<String>(table).await?);
+        }
+        Ok(categories.into_iter().collect())
+    }
+    pub async fn create_quick_category(&self, name: &str) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
+            return Err(Error::invalid(
+                "分类名称需为 1–80 个字符，且不能包含换行或控制字符",
+            ));
+        }
+        let _guard = self.write.lock().await;
+        let workspace = self.required_workspace().await?;
+        if name == "未分类"
+            || self
+                .quick_categories(&workspace.role)
+                .await?
+                .iter()
+                .any(|n| n == name)
+        {
+            return Err(Error::conflict("此分类已存在"));
+        }
+        let table = if workspace.role == Role::Admin {
+            "draft_quick_categories"
+        } else {
+            "personal_quick_categories"
+        };
+        self.put(table, name, &name).await
     }
     pub async fn effective_flows(&self, role: &Role) -> Result<Vec<Flow>> {
         let tables = if *role == Role::Admin {
@@ -436,8 +478,15 @@ impl AppState {
             flows,
             materials,
             material_categories: self.list("draft_material_categories").await?,
+            quick_categories: self.list("draft_quick_categories").await?,
         };
         let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM official_quick_categories")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO official_quick_categories SELECT * FROM draft_quick_categories")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM official_flows")
             .execute(&mut *tx)
             .await?;
@@ -500,6 +549,13 @@ impl AppState {
             admin_address: Some(address.into()),
         };
         let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM official_quick_categories")
+            .execute(&mut *tx)
+            .await?;
+        for category in &manifest.quick_categories {
+            sqlx::query("INSERT INTO official_quick_categories(id,json) VALUES(?,?) ON CONFLICT(id) DO NOTHING")
+                .bind(category).bind(serde_json::to_string(category)?).execute(&mut *tx).await?;
+        }
         sqlx::query("DELETE FROM official_flows")
             .execute(&mut *tx)
             .await?;
@@ -548,7 +604,10 @@ impl AppState {
 
 fn checked_table(table: &str) -> Result<&str> {
     match table {
-        "draft_flows"
+        "draft_quick_categories"
+        | "official_quick_categories"
+        | "personal_quick_categories"
+        | "draft_flows"
         | "official_flows"
         | "personal_flows"
         | "personal_flow_dependencies"

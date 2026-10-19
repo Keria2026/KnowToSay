@@ -16,6 +16,8 @@ struct PersonalBackup {
     flows: Vec<Flow>,
     #[serde(default)]
     flow_dependencies: Vec<Flow>,
+    #[serde(default)]
+    quick_categories: Vec<String>,
 }
 pub async fn export(state: &AppState, directory: Option<String>) -> Result<FileResult> {
     let _guard = state.write.lock().await;
@@ -30,6 +32,7 @@ pub async fn export(state: &AppState, directory: Option<String>) -> Result<FileR
         dependencies: state.list("personal_dependencies").await?,
         flows: state.list("personal_flows").await?,
         flow_dependencies: state.list("personal_flow_dependencies").await?,
+        quick_categories: state.list("personal_quick_categories").await?,
     };
     let base = directory
         .map(PathBuf::from)
@@ -86,6 +89,9 @@ pub async fn import(state: &AppState, directory: &str) -> Result<()> {
         &map.into_values().collect::<Vec<_>>(),
     )?;
     let mut tx = state.pool.begin().await?;
+    sqlx::query("DELETE FROM personal_quick_categories")
+        .execute(&mut *tx)
+        .await?;
     for (table, nodes) in [
         ("personal_nodes", data.personal_nodes),
         ("personal_dependencies", data.dependencies),
@@ -116,6 +122,15 @@ pub async fn import(state: &AppState, directory: &str) -> Result<()> {
                 .execute(&mut *tx)
                 .await?;
         }
+    }
+    for category in data.quick_categories {
+        sqlx::query(
+            "INSERT INTO personal_quick_categories(id,json) VALUES(?,?) ON CONFLICT(id) DO NOTHING",
+        )
+        .bind(&category)
+        .bind(serde_json::to_string(&category)?)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     Ok(())

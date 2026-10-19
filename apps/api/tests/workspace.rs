@@ -1206,3 +1206,209 @@ async fn single_canvas_migration_keeps_ids_edges_positions_and_personal_content(
     assert_eq!(latest.nodes, vec![original]);
     assert_eq!(latest.flows[0].id, "legacy-flow");
 }
+
+#[tokio::test]
+async fn quick_categories_preserve_empty_groups_and_personal_content_across_transfers() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    admin
+        .save_node(node("flow", "流程分类不应成为快捷分类"))
+        .await
+        .unwrap();
+    admin.publish().await.unwrap();
+    assert!(admin.snapshot().await.unwrap().quick_categories.is_empty());
+    assert_eq!(
+        local(
+            &admin,
+            "POST",
+            "/quick-categories",
+            json!({"name":" 售后答疑 "})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(admin.snapshot().await.unwrap().draft_dirty);
+    for name in ["售后答疑", "未分类"] {
+        assert_eq!(
+            local(&admin, "POST", "/quick-categories", json!({"name":name}))
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+    }
+    for name in [" ", "非法\n分类", &"长".repeat(81)] {
+        assert_eq!(
+            local(&admin, "POST", "/quick-categories", json!({"name":name}))
+                .await
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let mut quick = node("quick", "한국어 답변");
+    quick.kind = ScriptKind::Quick;
+    quick.flow_id = None;
+    quick.is_entry = false;
+    quick.category = "产品咨询".into();
+    admin.save_node(quick.clone()).await.unwrap();
+    // Updating an existing node into an already registered category must not violate triggers.
+    quick.question = "更新问题".into();
+    admin.save_node(quick.clone()).await.unwrap();
+    let release = admin.publish().await.unwrap();
+    assert_eq!(release.quick_categories, vec!["产品咨询", "售后答疑"]);
+    assert!(!admin.snapshot().await.unwrap().draft_dirty);
+    let address = server(admin.clone(), None).await;
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    assert_eq!(
+        sales.snapshot().await.unwrap().quick_categories,
+        release.quick_categories
+    );
+    let package = backup::export_package(&admin, None).await.unwrap();
+    let offline = AppState::open(dir.path().join("offline")).await.unwrap();
+    backup::import_package(&offline, &package.path)
+        .await
+        .unwrap();
+    assert_eq!(
+        offline.snapshot().await.unwrap().quick_categories,
+        release.quick_categories
+    );
+    let saved = backup::backup(&admin, None).await.unwrap();
+    admin.create_quick_category("备份之后新增").await.unwrap();
+    backup::restore(&admin, &saved.path).await.unwrap();
+    let reopened = AppState::open(&*admin.root).await.unwrap();
+    assert_eq!(
+        reopened.snapshot().await.unwrap().quick_categories,
+        release.quick_categories
+    );
+    assert_eq!(
+        reopened.latest().await.unwrap().quick_categories,
+        release.quick_categories
+    );
+    sales.create_quick_category("个人空分类").await.unwrap();
+    quick.category = "我的客户".into();
+    quick.replies.insert("ko".into(), "내 답변".into());
+    sales.save_node(quick.clone()).await.unwrap();
+    let personal = knowtosay::personal::export(&sales, None).await.unwrap();
+    admin.create_quick_category("管理员新增").await.unwrap();
+    admin.publish().await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert!(snapshot.quick_categories.contains(&"个人空分类".into()));
+    assert!(snapshot.quick_categories.contains(&"我的客户".into()));
+    assert!(snapshot.quick_categories.contains(&"管理员新增".into()));
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .find(|r| r.node.id == quick.id)
+            .unwrap()
+            .node,
+        quick
+    );
+    knowtosay::personal::import(&offline, &personal.path)
+        .await
+        .unwrap();
+    assert!(
+        offline
+            .snapshot()
+            .await
+            .unwrap()
+            .quick_categories
+            .contains(&"个人空分类".into())
+    );
+    assert_eq!(
+        offline
+            .snapshot()
+            .await
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|r| r.node.id == quick.id)
+            .unwrap()
+            .node,
+        quick
+    );
+    // Older manifests derive occupied categories from their quick nodes.
+    let mut legacy = serde_json::to_value(&release).unwrap();
+    legacy.as_object_mut().unwrap().remove("quickCategories");
+    let old: Manifest = serde_json::from_value(legacy).unwrap();
+    let previous = AppState::open(dir.path().join("previous")).await.unwrap();
+    previous.apply(&old, "").await.unwrap();
+    assert_eq!(
+        previous.snapshot().await.unwrap().quick_categories,
+        vec!["产品咨询"]
+    );
+}
+
+#[tokio::test]
+async fn quick_category_migration_preserves_existing_node_names_in_all_scopes() {
+    let dir = tempfile::tempdir().unwrap();
+    let migrations = dir.path().join("old-migrations");
+    tokio::fs::create_dir(&migrations).await.unwrap();
+    for (name, sql) in [
+        (
+            "0001_initial.sql",
+            include_str!("../migrations/0001_initial.sql"),
+        ),
+        (
+            "0002_material_search.sql",
+            include_str!("../migrations/0002_material_search.sql"),
+        ),
+        (
+            "0003_material_categories.sql",
+            include_str!("../migrations/0003_material_categories.sql"),
+        ),
+        (
+            "0004_named_flows.sql",
+            include_str!("../migrations/0004_named_flows.sql"),
+        ),
+    ] {
+        tokio::fs::write(migrations.join(name), sql).await.unwrap();
+    }
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(dir.path().join("workspace.sqlite"))
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::migrate::Migrator::new(migrations.as_path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap();
+    let mut quick = node("old-quick", "이전 답변");
+    quick.kind = ScriptKind::Quick;
+    quick.flow_id = None;
+    quick.is_entry = false;
+    quick.category = " 原有分类 ".into();
+    for table in [
+        "draft_nodes",
+        "official_nodes",
+        "personal_nodes",
+        "personal_dependencies",
+    ] {
+        sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?)"))
+            .bind(&quick.id)
+            .bind(serde_json::to_string(&quick).unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    pool.close().await;
+    let state = AppState::open(dir.path()).await.unwrap();
+    for table in [
+        "draft_quick_categories",
+        "official_quick_categories",
+        "personal_quick_categories",
+    ] {
+        assert_eq!(state.list::<String>(table).await.unwrap(), vec!["原有分类"]);
+    }
+    assert_eq!(
+        state.list::<ScriptNode>("draft_nodes").await.unwrap()[0],
+        quick
+    );
+}

@@ -1,10 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { api, native, copyText } from './api';
+import { quickCategoryName } from '$lib/utils/scripts';
 import {
-  flowOrderKey,
-  readFlowOrder,
-  orderedFlowIds,
-  orderFlows,
+  groupOrderKey,
+  readGroupOrder,
+  orderedGroupIds,
+  orderGroups,
 } from '../scripts/order';
 import type {
   Snapshot,
@@ -32,17 +33,48 @@ class WorkspaceStore {
   editorId = $state('');
   flowId = $state('');
   flowOrder = $state<string[]>([]);
-  flows = $derived(orderFlows(this.data?.flows ?? [], this.flowOrder));
+  flows = $derived(orderGroups(this.data?.flows ?? [], this.flowOrder));
   activeFlowId = $derived(
     this.flows.some((f) => f.id === this.flowId)
       ? this.flowId
       : this.flows[0]?.id || '',
   );
+  nodes = $derived(this.data?.nodes ?? []);
+  quickCategory = $state('');
+  quickCategoryOrder = $state<string[]>([]);
+  quickCategoryItems = $derived(
+    [
+      ...new Set([
+        '未分类',
+        ...(this.data?.quickCategories ?? []),
+        ...this.nodes
+          .filter((r) => r.node.kind === 'quick')
+          .map((r) => quickCategoryName(r.node)),
+      ]),
+    ].map((name) => ({ id: name, name })),
+  );
+  quickGroups = $derived(
+    orderGroups(this.quickCategoryItems, this.quickCategoryOrder),
+  );
+  occupiedQuickCategories = $derived(
+    new Set(
+      this.nodes
+        .filter((r) => r.node.kind === 'quick')
+        .map((r) => quickCategoryName(r.node)),
+    ),
+  );
+  activeQuickCategory = $derived(
+    this.quickGroups.some((g) => g.id === this.quickCategory)
+      ? this.quickCategory
+      : this.quickGroups.find((g) => this.occupiedQuickCategories.has(g.id))
+          ?.id ||
+          this.quickGroups[0]?.id ||
+          '未分类',
+  );
   editorKind = $state<ScriptKind>('flow');
   browseKind = $state<ScriptKind>('flow');
   editorDirty = $state(false);
   freshNode = $state<ScriptNode | null>(null);
-  nodes = $derived(this.data?.nodes ?? []);
   materials = $derived(this.data?.materials ?? []);
   workspace = $derived(this.data?.workspace ?? null);
   admin = $derived(this.workspace?.role === 'admin');
@@ -57,41 +89,60 @@ class WorkspaceStore {
     ]),
   ]);
 
-  restoreFlowOrder() {
+  restoreGroupOrders() {
     if (!this.workspace) {
       this.flowOrder = [];
+      this.quickCategoryOrder = [];
       return;
     }
     try {
-      const key = flowOrderKey(this.workspace.groupId);
-      const order = orderedFlowIds(
-        this.data?.flows ?? [],
-        readFlowOrder(localStorage.getItem(key)),
-      );
-      localStorage.setItem(key, JSON.stringify(order));
-      this.flowOrder = order;
+      for (const kind of ['flow', 'quick'] as const) {
+        const items =
+          kind === 'flow' ? (this.data?.flows ?? []) : this.quickCategoryItems;
+        const key = groupOrderKey(this.workspace.groupId, kind);
+        const order = orderedGroupIds(
+          items,
+          readGroupOrder(localStorage.getItem(key)),
+        );
+        localStorage.setItem(key, JSON.stringify(order));
+        if (kind === 'flow') this.flowOrder = order;
+        else this.quickCategoryOrder = order;
+      }
     } catch {
-      this.flowOrder = [];
-      this.error = '无法读取或保存本机流程顺序，请检查本机存储后重试';
+      this.error = '无法读取或保存本机标签顺序，请检查本机存储后重试';
     }
   }
-  saveFlowOrder(ids: string[]) {
+  saveGroupOrder(kind: ScriptKind, ids: string[]) {
     if (!this.workspace) return false;
     this.error = '';
     try {
-      const order = orderedFlowIds(this.data?.flows ?? [], ids);
-      const selectedFlow = this.activeFlowId;
+      const items =
+        kind === 'flow' ? (this.data?.flows ?? []) : this.quickCategoryItems;
+      const order = orderedGroupIds(items, ids);
+      const selected =
+        kind === 'flow' ? this.activeFlowId : this.activeQuickCategory;
       localStorage.setItem(
-        flowOrderKey(this.workspace.groupId),
+        groupOrderKey(this.workspace.groupId, kind),
         JSON.stringify(order),
       );
-      this.flowId = selectedFlow;
-      this.flowOrder = order;
+      if (kind === 'flow') {
+        this.flowId = selected;
+        this.flowOrder = order;
+      } else {
+        this.quickCategory = selected;
+        this.quickCategoryOrder = order;
+      }
       return true;
     } catch {
-      this.error = '流程顺序保存失败，请检查本机存储后重试';
+      this.error = '标签顺序保存失败，请检查本机存储后重试';
       return false;
     }
+  }
+  saveFlowOrder(ids: string[]) {
+    return this.saveGroupOrder('flow', ids);
+  }
+  saveQuickCategoryOrder(ids: string[]) {
+    return this.saveGroupOrder('quick', ids);
   }
   async refresh() {
     const data = await api<Snapshot>('/snapshot');
@@ -101,21 +152,29 @@ class WorkspaceStore {
       !data.nodes.some((n) => n.node.id === this.selectedId)
     ) {
       const candidates =
-        this.flowId &&
-        data.flows.some((f) => f.id === this.flowId) &&
-        this.browseKind === 'flow'
-          ? data.nodes.filter((r) => r.node.flowId === this.flowId)
-          : data.nodes;
+        this.browseKind === 'quick' && this.quickCategory
+          ? data.nodes.filter(
+              (r) =>
+                r.node.kind === 'quick' &&
+                quickCategoryName(r.node) === this.activeQuickCategory,
+            )
+          : this.browseKind === 'flow' &&
+              this.flowId &&
+              data.flows.some((f) => f.id === this.flowId)
+            ? data.nodes.filter(
+                (r) => r.node.kind !== 'quick' && r.node.flowId === this.flowId,
+              )
+            : data.nodes;
       this.selectedId =
         candidates.find((r) => r.node.isEntry)?.node.id ||
         candidates[0]?.node.id ||
         '';
-      this.browseKind =
-        data.nodes.find((n) => n.node.id === this.selectedId)?.node.kind ??
-        'flow';
     }
+    if (this.current) this.browseKind = this.current.node.kind ?? 'flow';
     const selectedFlowId = this.current?.node.flowId;
     if (selectedFlowId) this.flowId = selectedFlowId;
+    if (this.current?.node.kind === 'quick')
+      this.quickCategory = quickCategoryName(this.current.node);
   }
   async start() {
     try {
@@ -181,6 +240,20 @@ class WorkspaceStore {
         steps.find((r) => r.node.isEntry)?.node.id || steps[0]?.node.id || '';
       this.history = [];
     }
+    if (
+      nav === 'workbench' &&
+      this.browseKind === 'quick' &&
+      (this.current?.node.kind !== 'quick' ||
+        quickCategoryName(this.current.node) !== this.activeQuickCategory)
+    ) {
+      this.selectedId =
+        this.nodes.find(
+          (r) =>
+            r.node.kind === 'quick' &&
+            quickCategoryName(r.node) === this.activeQuickCategory,
+        )?.node.id || '';
+      this.history = [];
+    }
     this.nav = nav;
     this.query = '';
     return true;
@@ -192,6 +265,7 @@ class WorkspaceStore {
     const differentFlow =
       kind !== 'quick' && node?.flowId !== this.activeFlowId;
     if (node?.flowId) this.flowId = node.flowId;
+    if (node?.kind === 'quick') this.quickCategory = quickCategoryName(node);
     if (reset || differentFlow || kind === 'quick' || kind !== this.browseKind)
       this.history = [];
     else if (this.selectedId && this.selectedId !== id)
@@ -213,7 +287,10 @@ class WorkspaceStore {
   edit(record?: NodeRecord) {
     this.editorKind = (record || this.current)?.node.kind ?? 'flow';
     this.editorId = record?.node.id || this.current?.node.id || '';
-    const flowId = (record || this.current)?.node.flowId;
+    const editedNode = (record || this.current)?.node;
+    if (editedNode?.kind === 'quick')
+      this.quickCategory = quickCategoryName(editedNode);
+    const flowId = editedNode?.flowId;
     if (flowId) this.flowId = flowId;
     this.freshNode = null;
     this.nav = 'scripts';
@@ -229,6 +306,11 @@ class WorkspaceStore {
             `/scripts/${encodeURIComponent(record.node.id)}/reset`,
             'POST',
           );
+          const restored = this.nodes.find(
+            (r) => r.node.id === record.node.id,
+          )?.node;
+          if (restored?.kind === 'quick')
+            this.quickCategory = quickCategoryName(restored);
           return true;
         },
         '已恢复管理员版本',
