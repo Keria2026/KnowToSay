@@ -205,7 +205,19 @@ impl AppState {
         Ok(())
     }
     pub async fn save_node(&self, node: ScriptNode) -> Result<()> {
-        validate_node(&node)?;
+        self.save_nodes(vec![node]).await
+    }
+    pub async fn save_nodes(&self, nodes: Vec<ScriptNode>) -> Result<()> {
+        if nodes.is_empty() || nodes.len() > 100_000 {
+            return Err(Error::invalid("请选择需要保存的话术，单次最多 100000 条"));
+        }
+        let mut ids = BTreeSet::new();
+        for node in &nodes {
+            validate_node(node)?;
+            if !ids.insert(&node.id) {
+                return Err(Error::invalid("同一次保存不能包含重复的话术标识"));
+            }
+        }
         let _guard = self.write.lock().await;
         let w = self.required_workspace().await?;
         let mut effective: BTreeMap<String, ScriptNode> = BTreeMap::new();
@@ -219,53 +231,75 @@ impl AppState {
                 effective.insert(n.id.clone(), n);
             }
         }
-        if node.kind == ScriptKind::Quick
-            && effective
-                .get(&node.id)
-                .is_none_or(|n| n.kind != ScriptKind::Quick)
-            && effective
-                .values()
-                .any(|n| n.branches.iter().any(|b| b.target_id == node.id))
-        {
+        let conversions: BTreeSet<_> = nodes
+            .iter()
+            .filter(|node| {
+                node.kind == ScriptKind::Quick
+                    && effective
+                        .get(&node.id)
+                        .is_none_or(|n| n.kind != ScriptKind::Quick)
+            })
+            .map(|node| node.id.clone())
+            .collect();
+        for node in &nodes {
+            effective.insert(node.id.clone(), node.clone());
+        }
+        if effective.values().any(|n| {
+            n.branches
+                .iter()
+                .any(|b| conversions.contains(&b.target_id))
+        }) {
             return Err(Error::invalid("此话术仍被流程引用，请先移除指向它的连接"));
         }
-        effective.insert(node.id.clone(), node.clone());
-        if node.branches.iter().any(|b| {
-            effective
-                .get(&b.target_id)
-                .is_some_and(|n| n.kind == ScriptKind::Quick)
-        }) {
-            return Err(Error::invalid("流程分支只能连接流程话术，请选择其他下一步"));
+        for node in &nodes {
+            if node.branches.iter().any(|b| {
+                effective
+                    .get(&b.target_id)
+                    .is_some_and(|n| n.kind == ScriptKind::Quick)
+            }) {
+                return Err(Error::invalid("流程分支只能连接流程话术，请选择其他下一步"));
+            }
         }
-        if w.role == Role::Admin {
-            return self.put("draft_nodes", &node.id, &node).await;
-        }
-        // Retain only official dependencies reachable from this personal node. New official
-        // versions still take precedence over retained copies, personal edits over both.
-        let official: BTreeMap<_, _> = self
-            .list::<ScriptNode>("official_nodes")
-            .await?
-            .into_iter()
-            .map(|n| (n.id.clone(), n))
-            .collect();
-        let mut seen = BTreeSet::new();
-        let mut pending = vec![node.id.clone()];
-        pending.extend(node.branches.iter().map(|b| b.target_id.clone()));
         let mut tx = self.pool.begin().await?;
-        while let Some(id) = pending.pop() {
-            if !seen.insert(id.clone()) {
-                continue;
-            }
-            if let Some(n) = official.get(&id) {
-                pending.extend(n.branches.iter().map(|b| b.target_id.clone()));
-                sqlx::query("INSERT OR IGNORE INTO personal_dependencies(id,json) VALUES(?,?)")
-                    .bind(&id)
-                    .bind(serde_json::to_string(n)?)
-                    .execute(&mut *tx)
-                    .await?;
+        if w.role == Role::Sales {
+            // Keep official dependencies of all changed nodes in the same transaction.
+            let official: BTreeMap<_, _> = self
+                .list::<ScriptNode>("official_nodes")
+                .await?
+                .into_iter()
+                .map(|n| (n.id.clone(), n))
+                .collect();
+            let mut seen = BTreeSet::new();
+            let mut pending: Vec<_> = nodes
+                .iter()
+                .flat_map(|n| {
+                    std::iter::once(n.id.clone())
+                        .chain(n.branches.iter().map(|b| b.target_id.clone()))
+                })
+                .collect();
+            while let Some(id) = pending.pop() {
+                if !seen.insert(id.clone()) {
+                    continue;
+                }
+                if let Some(n) = official.get(&id) {
+                    pending.extend(n.branches.iter().map(|b| b.target_id.clone()));
+                    sqlx::query("INSERT OR IGNORE INTO personal_dependencies(id,json) VALUES(?,?)")
+                        .bind(&id)
+                        .bind(serde_json::to_string(n)?)
+                        .execute(&mut *tx)
+                        .await?;
+                }
             }
         }
-        sqlx::query("INSERT INTO personal_nodes(id,json) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json").bind(&node.id).bind(serde_json::to_string(&node)?).execute(&mut *tx).await?;
+        let table = if w.role == Role::Admin {
+            "draft_nodes"
+        } else {
+            "personal_nodes"
+        };
+        for node in &nodes {
+            sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json"))
+                .bind(&node.id).bind(serde_json::to_string(node)?).execute(&mut *tx).await?;
+        }
         tx.commit().await?;
         Ok(())
     }

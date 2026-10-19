@@ -9,6 +9,7 @@
   import { searchScripts, kindName, scriptKindName } from '$lib/utils/scripts';
   import { api } from './api';
   import type { MaterialSearchResult } from '$lib/types';
+  import BilingualReplies from '../scripts/BilingualReplies.svelte';
   let scripts = $derived(searchScripts(app.nodes, app.query));
   let materials = $state<MaterialSearchResult[]>([]);
   let loading = $state(false);
@@ -56,11 +57,9 @@
           class="search-result"
           onclick={() => app.select(record.node.id)}
           ><span class="result-icon"><MessageSquare size={20} /></span><span
-            ><strong>{record.node.title}</strong><small
-              >{record.node.replies[app.language] ||
-                record.node.question ||
-                '此语言暂无回复'}</small
-            ><span class="tag"
+            ><strong>{record.node.title}</strong><BilingualReplies
+              node={record.node}
+            /><span class="tag"
               >{scriptKindName(record.node.kind)} · {record.node.category ||
                 '未分类'}{record.source === 'personal'
                 ? ' · 个人版本'

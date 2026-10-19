@@ -97,7 +97,8 @@ class WorkspaceStore {
   }
   navigate(nav: string) {
     if (this.editorDirty && this.nav === 'scripts') {
-      if (!confirm('当前话术尚未保存，放弃修改并离开？')) return false;
+      if (!confirm('当前话术与流程尚未保存，放弃全部修改并离开？'))
+        return false;
       this.editorDirty = false;
       this.freshNode = null;
       this.editorId = '';
@@ -124,26 +125,6 @@ class WorkspaceStore {
       this.selectedId = previous;
       this.history = this.history.slice(0, -1);
     }
-  }
-  async save(node: ScriptNode) {
-    return this.task(
-      '保存话术',
-      async () => {
-        this.data = await api<Snapshot>(
-          `/scripts/${encodeURIComponent(node.id)}`,
-          'PUT',
-          node,
-        );
-        this.editorId = node.id;
-        this.freshNode = null;
-        this.selectedId = node.id;
-        this.editorKind = node.kind ?? 'flow';
-        this.browseKind = node.kind ?? 'flow';
-      },
-      this.admin
-        ? '已保存为管理员草稿，发布后业务员才会收到'
-        : '已保存个人版本，管理员更新不会覆盖此修改',
-    );
   }
   edit(record?: NodeRecord) {
     this.editorKind = (record || this.current)?.node.kind ?? 'flow';

@@ -852,3 +852,96 @@ fn excel_import_supports_quick_replies_and_rejects_flow_fields_on_them() {
     rows[1].cells[6] = r#"[{"id":"next","label":"继续","targetId":"other"}]"#.into();
     assert!(files::scripts_from_rows(&rows, &mapping).is_err());
 }
+
+#[tokio::test]
+async fn graph_batch_save_is_atomic_and_personal_layout_and_connections_survive_sync() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let original = node("root", "原始回复");
+    admin.save_node(original.clone()).await.unwrap();
+    let mut moved = original.clone();
+    moved.position = Some(Position { x: 120.0, y: -45.0 });
+    let mut child = node("child", "分支回复");
+    child.is_entry = false;
+    child.position = Some(Position { x: 420.0, y: 60.0 });
+    moved.branches.push(Branch {
+        id: "choice".into(),
+        label: "想了解产品".into(),
+        target_id: child.id.clone(),
+    });
+    // Force a database error after the first write to verify actual transaction rollback.
+    sqlx::query("CREATE TRIGGER reject_child BEFORE INSERT ON draft_nodes WHEN NEW.id='child' BEGIN SELECT RAISE(ABORT, 'test rollback'); END").execute(&admin.pool).await.unwrap();
+    assert!(
+        admin
+            .save_nodes(vec![moved.clone(), child.clone()])
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        admin.list::<ScriptNode>("draft_nodes").await.unwrap(),
+        vec![original]
+    );
+    sqlx::query("DROP TRIGGER reject_child")
+        .execute(&admin.pool)
+        .await
+        .unwrap();
+    let (status, _) = local(&admin, "PUT", "/scripts", json!({"nodes":[moved,child]})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        admin
+            .save_nodes(vec![moved.clone(), moved.clone()])
+            .await
+            .is_err()
+    );
+    admin.publish().await.unwrap();
+    let address = server(admin.clone(), None).await;
+    let sales_path = dir.path().join("sales");
+    let sales = AppState::open(&sales_path).await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    let mut personal = moved.clone();
+    personal.position = Some(Position {
+        x: -300.0,
+        y: 300.0,
+    });
+    personal.branches[0].label = "我的客户回答".into();
+    let mut personal_child = node("personal-child", "我的新分支");
+    personal_child.is_entry = false;
+    personal_child.position = Some(Position { x: 0.0, y: 480.0 });
+    personal.branches.push(Branch {
+        id: "personal-choice".into(),
+        label: "我的新选项".into(),
+        target_id: personal_child.id.clone(),
+    });
+    sales
+        .save_nodes(vec![personal.clone(), personal_child.clone()])
+        .await
+        .unwrap();
+    moved.position = Some(Position { x: 900.0, y: 900.0 });
+    moved.replies.insert("ko".into(), "管理员新回复".into());
+    admin.save_node(moved.clone()).await.unwrap();
+    admin.publish().await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    drop(sales);
+    let reopened = AppState::open(&sales_path).await.unwrap();
+    let snapshot = reopened.snapshot().await.unwrap();
+    let root = snapshot.nodes.iter().find(|r| r.node.id == "root").unwrap();
+    assert_eq!(root.node, personal);
+    assert_eq!(root.official.as_ref().unwrap(), &moved);
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .find(|r| r.node.id == personal_child.id)
+            .unwrap()
+            .node,
+        personal_child
+    );
+    assert_eq!(
+        admin
+            .list::<ScriptNode>("personal_nodes")
+            .await
+            .unwrap()
+            .len(),
+        0
+    );
+}

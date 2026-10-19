@@ -66,6 +66,12 @@ pub enum ScriptKind {
     Quick,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveScripts {
+    pub nodes: Vec<ScriptNode>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SheetRow {

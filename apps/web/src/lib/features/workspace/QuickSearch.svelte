@@ -27,6 +27,7 @@
     SearchPanelMode,
   } from '$lib/types';
   import './quick-search.css';
+  import BilingualReplies from '../scripts/BilingualReplies.svelte';
   let query = $state('');
   let mode = $state<SearchPanelMode>('search');
   let visibleLimit = $state(50);
@@ -254,6 +255,8 @@
               /></label
             >{/each}
         </div>{/if}
+      <BilingualReplies node={selected.node} />
+      <p class="field-help">复制预览 · {languageName(app.language)}</p>
       <p class="text-preview">
         {preview?.languageMissing
           ? '暂无此语言版本，请选择其他语言。'
@@ -305,13 +308,7 @@
                 >{#if record.source === 'personal'}<span
                     class="source-label personal">个人版本</span
                   >{/if}</td
-              ><td
-                ><p>
-                  {rowPreview.languageMissing
-                    ? '暂无此语言回复'
-                    : rowPreview.text}
-                </p></td
-              ><td
+              ><td><BilingualReplies node={record.node} /></td><td
                 ><button
                   class="button primary"
                   disabled={!!app.busy}
@@ -367,10 +364,9 @@
           class="quick-result"
           onclick={() => select(record)}
           ><MessageSquare size={18} /><span
-            ><strong>{record.node.title}</strong><small
-              >{record.node.replies[app.language] ||
-                record.node.question}</small
-            ></span
+            ><strong>{record.node.title}</strong><BilingualReplies
+              node={record.node}
+            /></span
           ><span class="source-label"
             >{scriptKindName(record.node.kind)} · {record.source === 'personal'
               ? '个人'

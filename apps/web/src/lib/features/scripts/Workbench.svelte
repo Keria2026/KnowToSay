@@ -19,7 +19,11 @@
   import { api } from '../workspace/api';
   import { replyPreview, newNode, scriptKindName } from '$lib/utils/scripts';
   import type { Material, Snapshot, ScriptKind } from '$lib/types';
+  import FlowCanvas from './FlowCanvas.svelte';
+  import { connectedFlow } from './flow';
   let node = $derived(app.current?.node);
+  let showFlow = $state(false);
+  let completeFlow = $derived(connectedFlow(app.nodes, node?.id || ''));
   let preview = $derived(
     node ? replyPreview(node, app.language, app.values) : null,
   );
@@ -101,6 +105,28 @@
   </div>
 {:else}
   <div class:compact-workbench={app.compact} class="workbench-grid">
+    {#if showFlow && node && node.kind !== 'quick'}
+      <section class="workbench-flow-overview" aria-label="完整流程预览">
+        <div class="graph-toolbar">
+          <span
+            ><GitBranch size={17} />完整流程 · {completeFlow.length} 个步骤</span
+          ><button class="text-button" onclick={() => (showFlow = false)}
+            >收起流程图</button
+          >
+        </div>
+        <p class="graph-help">
+          高亮为当前话术。点击步骤查看回复，滚轮缩放，拖动空白处平移。
+        </p>
+        <div class="workbench-flow-canvas">
+          <FlowCanvas
+            records={completeFlow}
+            selectedId={node.id}
+            label="销售工作台完整流程图"
+            onselect={(id) => app.select(id, true)}
+          />
+        </div>
+      </section>
+    {/if}
     {#if !app.compact}<aside class="flow-list">
         <div
           class="script-type-tabs compact-tabs"
@@ -158,6 +184,13 @@
             >{scriptKindName(node.kind)} · {node.category || '沟通话术'}</span
           >
           <div class="inline-actions">
+            {#if node.kind !== 'quick'}<button
+                class="text-button"
+                onclick={() => (showFlow = !showFlow)}
+                ><GitBranch size={16} />{showFlow
+                  ? '收起完整流程'
+                  : '查看完整流程'}</button
+              >{/if}
             <span
               class:personal={app.current?.source === 'personal'}
               class="source-label"

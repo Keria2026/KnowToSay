@@ -30,6 +30,7 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/group/discover", get(discover))
         .route("/api/v1/group/address", put(update_address))
         .route("/api/v1/scripts/{id}", put(save_node).delete(delete_node))
+        .route("/api/v1/scripts", put(save_nodes))
         .route("/api/v1/scripts/{id}/reset", post(reset_node))
         .route("/api/v1/scripts/import", post(import_scripts))
         .route("/api/v1/materials", post(save_material))
@@ -203,6 +204,15 @@ pub async fn save_node(
         return Err(Error::invalid("话术标识不一致"));
     }
     state.save_node(node).await?;
+    Ok(Json(state.snapshot().await?))
+}
+
+#[utoipa::path(put,path="/api/v1/scripts",request_body=SaveScripts,responses((status=200,body=Snapshot)))]
+pub async fn save_nodes(
+    State(state): State<AppState>,
+    Json(input): Json<SaveScripts>,
+) -> Result<Json<Snapshot>> {
+    state.save_nodes(input.nodes).await?;
     Ok(Json(state.snapshot().await?))
 }
 

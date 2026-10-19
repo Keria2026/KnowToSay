@@ -299,6 +299,36 @@
         }
       }
     },
+    "/api/v1/scripts": {
+      "put": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "save_nodes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveScripts"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/scripts/import": {
       "post": {
         "tags": [
@@ -848,6 +878,20 @@
           "admin",
           "sales"
         ]
+      },
+      "SaveScripts": {
+        "type": "object",
+        "required": [
+          "nodes"
+        ],
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScriptNode"
+            }
+          }
+        }
       },
       "ScriptKind": {
         "type": "string",

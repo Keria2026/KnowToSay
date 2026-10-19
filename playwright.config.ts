@@ -9,6 +9,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:1421',
     viewport: { width: 1440, height: 1000 },
+    actionTimeout: 10_000,
     permissions: ['clipboard-read', 'clipboard-write'],
     launchOptions: {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,

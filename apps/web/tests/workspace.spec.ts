@@ -1,5 +1,16 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
+
+async function drag(page: Page, from: Locator, to: Locator | { x: number; y: number }) {
+  const start = await from.boundingBox();
+  expect(start).not.toBeNull();
+  const finish = 'boundingBox' in to ? await to.boundingBox() : null;
+  const end = finish ? { x: finish.x + finish.width / 2, y: finish.y + finish.height / 2 } : to as { x: number; y: number };
+  await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 20 });
+  await page.mouse.up();
+}
 
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus) {
@@ -8,6 +19,7 @@ test.afterEach(async ({ page }, testInfo) => {
 });
 
 test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜索与发布', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
   const errors: string[] = [];
   page.on('pageerror', error => {
     errors.push(error.message);
@@ -46,6 +58,48 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await page.screenshot({path:testInfo.outputPath('compact.png'),fullPage:true});
   await page.getByRole('button',{name:'切换完整窗口'}).click();
   await page.setViewportSize({width:1440,height:1000});
+  await page.getByRole('button',{name:'话术与流程',exact:false}).click();
+  const graph = page.getByRole('region',{name:'话术流程图',exact:true});
+  await expect(graph.locator('.svelte-flow__node')).toHaveCount(4);
+  const product = graph.locator('.svelte-flow__node[data-id="demo-product"]');
+  await product.click();
+  await page.getByLabel('问题 / 内部说明',{exact:true}).fill('确认产品需求（图表编辑测试）');
+  const productBox = await product.boundingBox();
+  await drag(page, product, {x:productBox!.x + productBox!.width / 2 - 45, y:productBox!.y + productBox!.height / 2 + 70});
+  await drag(page, product.locator('.source'), graph.locator('.svelte-flow__node[data-id="demo-yes"] .target'));
+  await page.getByLabel('分支条件 / 客户回答',{exact:true}).fill('再确认用餐');
+  await page.getByRole('button',{name:'确认分支',exact:true}).click();
+  await expect(graph.getByText('再确认用餐',{exact:true})).toBeVisible();
+  const canvas = await graph.boundingBox();
+  await drag(page, product.locator('.source'), {x:canvas!.x + canvas!.width - 95,y:canvas!.y + canvas!.height - 130});
+  await page.getByLabel('分支条件 / 客户回答',{exact:true}).fill('查看优惠');
+  await page.getByLabel('子话术题目',{exact:true}).fill('优惠说明');
+  await page.getByRole('button',{name:'确认分支',exact:true}).click();
+  await page.getByLabel('한국어 · 韩语',{exact:true}).fill('할인 내용을 안내해 드리겠습니다.');
+  await page.getByLabel('简体中文',{exact:true}).fill('为您介绍优惠内容。');
+  await expect(page.getByText('5 个步骤 · 6 条连接')).toBeVisible();
+  await graph.getByText('查看优惠',{exact:true}).click();
+  await page.getByLabel('分支条件 / 客户回答',{exact:true}).fill('需要优惠');
+  await page.getByRole('button',{name:'确认分支',exact:true}).click();
+  await expect(page.getByLabel('问题 / 内部说明',{exact:true})).toHaveValue('确认产品需求（图表编辑测试）');
+  await page.getByRole('button',{name:'保存流程',exact:true}).click();
+  await expect(page.getByRole('button',{name:'保存流程',exact:true})).toBeDisabled();
+  const savedGraph = await (await page.request.get('/api/v1/snapshot')).json();
+  const savedProduct = savedGraph.nodes.find((r: {node:{id:string}}) => r.node.id === 'demo-product').node;
+  expect(savedProduct.position).not.toBeNull();
+  expect(savedProduct.branches.map((b:{label:string}) => b.label)).toEqual(['再确认用餐','需要优惠']);
+  await page.screenshot({path:testInfo.outputPath('flow-editor.png'),fullPage:true});
+  await page.reload();
+  await expect(page.getByRole('heading',{name:'开场问候',exact:true})).toBeVisible();
+  const reloadedGraph = await (await page.request.get('/api/v1/snapshot')).json();
+  expect(reloadedGraph.nodes.find((r:{node:{id:string}}) => r.node.id === 'demo-product').node).toEqual(savedProduct);
+  await page.getByRole('button',{name:'查看完整流程',exact:true}).click();
+  const overview = page.getByRole('region',{name:'销售工作台完整流程图',exact:true});
+  await expect(overview.locator('.svelte-flow__node')).toHaveCount(5);
+  await expect(overview.locator('.svelte-flow__node.draggable')).toHaveCount(0);
+  await overview.locator('.svelte-flow__node[data-id="demo-no"]').click();
+  await expect(page.getByRole('heading',{name:'尚未用餐',exact:true})).toBeVisible();
+  await page.screenshot({path:testInfo.outputPath('flow-workbench.png'),fullPage:true});
   await page.getByRole('button',{name:'知识库',exact:true}).click();
   await page.getByRole('button',{name:'新建分类',exact:true}).click();
   await page.getByLabel('分类名称',{exact:true}).fill('配送与售后');
@@ -80,7 +134,7 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await page.screenshot({path:testInfo.outputPath('search.png'),fullPage:true});
   await page.getByRole('button',{name:'清空搜索'}).click();
   await page.getByRole('button',{name:'话术与流程',exact:false}).click();
-  await expect(page.getByText('8 个步骤 · 8 条连接')).toBeVisible();
+  await expect(page.getByText('9 个步骤 · 10 条连接')).toBeVisible();
   await page.getByRole('tab',{name:/快捷话术/}).click();
   await page.getByRole('button',{name:'新建快捷话术',exact:true}).click();
   await page.getByLabel('题目',{exact:true}).fill('客户说太贵了');
@@ -99,10 +153,17 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await expect(page.locator('.script-library-list').getByText('咨询产品信息',{exact:true})).toBeVisible();
   await page.screenshot({path:testInfo.outputPath('quick-script-management.png'),fullPage:true});
   await page.getByRole('tab',{name:/流程话术/}).click();
-  await expect(page.getByText('8 个步骤 · 8 条连接')).toBeVisible();
+  await expect(page.getByText('9 个步骤 · 10 条连接')).toBeVisible();
   await expect(page.locator('.svelte-flow__node').filter({hasText:'客户说太贵了'})).toHaveCount(0);
   await page.getByRole('textbox',{name:'全局搜索'}).fill('价格太高');
-  await page.locator('.search-result').filter({hasText:'客户说太贵了'}).click();
+  const bilingualResult = page.locator('.search-result').filter({hasText:'客户说太贵了'});
+  await expect(bilingualResult.locator('[lang="zh-CN"]')).toContainText('价格包含产品与服务');
+  await expect(bilingualResult.locator('[lang="ko"]')).toContainText('가격에는 제품과 서비스');
+  await page.getByLabel('发送语言',{exact:true}).selectOption('zh-CN');
+  await expect(bilingualResult.locator('[lang="ko"]')).toContainText('가격에는 제품과 서비스');
+  await page.getByLabel('发送语言',{exact:true}).selectOption('ko');
+  await page.screenshot({path:testInfo.outputPath('bilingual-search.png'),fullPage:true});
+  await bilingualResult.click();
   await expect(page.getByRole('heading',{name:'客户说太贵了',exact:true})).toBeVisible();
   await expect(page.getByText('当前流程已到此处',{exact:true})).toHaveCount(0);
 
@@ -118,6 +179,9 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await expect(page.getByRole('heading',{name:'快捷话术回复表',exact:true})).toBeVisible();
   await expect(page.locator('.quick-reply-table')).toContainText('客户说太贵了');
   await expect(page.locator('.quick-reply-table')).not.toContainText('开场问候');
+  const quickRow = page.locator('.quick-reply-table tr').filter({hasText:'客户说太贵了'});
+  await expect(quickRow.locator('[lang="zh-CN"]')).toContainText('价格包含产品与服务');
+  await expect(quickRow.locator('[lang="ko"]')).toContainText('가격에는 제품과 서비스');
   await page.getByRole('button',{name:'复制客户说太贵了',exact:true}).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('가격에는 제품과 서비스가 포함되어 있습니다.');
   await page.getByRole('button',{name:'查看咨询产品信息',exact:true}).click();
@@ -135,6 +199,8 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await page.screenshot({path:testInfo.outputPath('quick-replies.png'),fullPage:true});
   await page.getByRole('button',{name:'全库搜索',exact:true}).click();
   await page.getByRole('textbox',{name:'独立搜索栏',exact:true}).fill('开场问候');
+  await expect(page.locator('.quick-result').first().locator('[lang="zh-CN"]')).toContainText('吃饭了吗');
+  await expect(page.locator('.quick-result').first().locator('[lang="ko"]')).toContainText('식사');
   await page.locator('.quick-result').first().click();
   await page.getByLabel('客户姓名').fill('민수');
   await page.getByRole('button',{name:'复制回复',exact:true}).click();

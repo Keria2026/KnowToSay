@@ -1,5 +1,6 @@
 import type { components } from './generated/api';
 export type ScriptNode = components['schemas']['ScriptNode'];
+export type SaveScripts = components['schemas']['SaveScripts'];
 export type ScriptKind = components['schemas']['ScriptKind'];
 export type NodeRecord = components['schemas']['NodeRecord'];
 export type Material = components['schemas']['Material'];

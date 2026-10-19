@@ -1,14 +1,5 @@
 <script lang="ts">
-  import {
-    SvelteFlow,
-    Background,
-    Controls,
-    Position,
-    MarkerType,
-    type Node,
-    type Edge,
-  } from '@xyflow/svelte';
-  import '@xyflow/svelte/dist/style.css';
+  import { tick } from 'svelte';
   import {
     Plus,
     Save,
@@ -20,86 +11,85 @@
     RotateCcw,
     MessageSquare,
     Search,
+    LayoutGrid,
   } from 'lucide-svelte';
   import { app } from '../workspace/store.svelte';
   import { api } from '../workspace/api';
   import { newNode, languageName, searchScripts } from '$lib/utils/scripts';
-  import type { ScriptNode, ScriptKind, Snapshot } from '$lib/types';
-  let draft = $state<ScriptNode | null>(null);
-  let baseline = $state('');
-  let lastId = '';
+  import type {
+    ScriptNode,
+    ScriptKind,
+    Snapshot,
+    NodeRecord,
+    SaveScripts,
+  } from '$lib/types';
+  import FlowCanvas from './FlowCanvas.svelte';
+  import BilingualReplies from './BilingualReplies.svelte';
+  import { layoutFlow } from './flow';
+  type Point = { x: number; y: number };
+  let drafts = $state<Record<string, ScriptNode>>({});
   let languageCode = $state('');
   let quickQuery = $state('');
-  let quickNodes = $derived(app.nodes.filter((r) => r.node.kind === 'quick'));
+  let originals = $derived(new Map(app.nodes.map((r) => [r.node.id, r])));
+  let records = $derived<NodeRecord[]>([
+    ...app.nodes.map((r) => ({ ...r, node: drafts[r.node.id] || r.node })),
+    ...Object.values(drafts)
+      .filter((n) => !originals.has(n.id))
+      .map((node) => ({
+        node,
+        source: app.admin ? 'draft' : 'personal',
+        official: null,
+      })),
+  ]);
+  let changed = $derived(
+    Object.values(drafts).filter(
+      (n) => JSON.stringify(n) !== JSON.stringify(originals.get(n.id)?.node),
+    ),
+  );
+  let dirty = $derived(changed.length > 0);
+  let draft = $derived(drafts[app.editorId] || null);
+  let current = $derived(originals.get(app.editorId));
+  let quickNodes = $derived(records.filter((r) => r.node.kind === 'quick'));
   let filteredQuick = $derived(searchScripts(quickNodes, quickQuery));
-  let flowNodes = $derived(app.nodes.filter((r) => r.node.kind !== 'quick'));
-  let current = $derived(app.nodes.find((r) => r.node.id === app.editorId));
-  let dirty = $derived(draft && JSON.stringify(draft) !== baseline);
+  let flowNodes = $derived(records.filter((r) => r.node.kind !== 'quick'));
+  let connectionCount = $derived(
+    flowNodes.reduce((sum, r) => sum + r.node.branches.length, 0),
+  );
   $effect(() => {
-    app.editorDirty = !!dirty;
+    app.editorDirty = dirty;
   });
-  let nodes = $state<Node[]>([]);
-  let edges = $state<Edge[]>([]);
   $effect(() => {
-    const target = app.freshNode || current?.node;
-    if (target && target.id !== lastId) {
-      draft = JSON.parse(JSON.stringify(target));
-      baseline = JSON.stringify(target);
-      lastId = target.id;
+    if (app.freshNode) {
+      const node = app.freshNode;
+      drafts[node.id] = JSON.parse(JSON.stringify(node));
+      app.editorId = node.id;
+      app.freshNode = null;
     }
-    if (!target) {
-      draft = null;
-      lastId = '';
+    if (app.editorId && !drafts[app.editorId] && originals.has(app.editorId)) {
+      drafts[app.editorId] = JSON.parse(
+        JSON.stringify(originals.get(app.editorId)!.node),
+      );
     }
   });
-  $effect(() => {
-    const items = flowNodes;
-    nodes = items.map((r, i) => ({
-      id: r.node.id,
-      position: r.node.position || {
-        x: (i % 3) * 250,
-        y: Math.floor(i / 3) * 170,
-      },
-      data: {
-        label: `${r.node.isEntry ? '起点 · ' : ''}${r.node.title}${r.source === 'personal' ? ' · 个人' : ''}`,
-      },
-      selected: r.node.id === app.editorId,
-      sourcePosition: Position.Bottom,
-      targetPosition: Position.Top,
-    }));
-    const ids = new Set(items.map((r) => r.node.id));
-    edges = items.flatMap((r) =>
-      r.node.branches
-        .filter((b) => ids.has(b.targetId))
-        .map((b) => ({
-          id: b.id,
-          source: r.node.id,
-          target: b.targetId,
-          label: b.label,
-          markerEnd: { type: MarkerType.ArrowClosed },
-          type: 'smoothstep',
-        })),
-    );
-  });
+  function editNode(id: string) {
+    if (!drafts[id]) {
+      const node = records.find((r) => r.node.id === id)?.node;
+      if (node) drafts[id] = JSON.parse(JSON.stringify(node));
+    }
+    return drafts[id];
+  }
   function select(id: string) {
-    if (dirty && !confirm('当前话术尚未保存，放弃修改并切换？')) return;
-    app.freshNode = null;
     app.editorId = id;
   }
   function add() {
-    if (dirty && !confirm('当前话术尚未保存，放弃修改？')) return;
-    const n = newNode(app.editorKind);
-    n.isEntry = app.editorKind === 'flow' && !flowNodes.length;
-    app.editorId = '';
-    app.freshNode = n;
+    const node = newNode(app.editorKind);
+    node.isEntry = app.editorKind === 'flow' && !flowNodes.length;
+    drafts[node.id] = node;
+    app.editorId = node.id;
   }
   function switchKind(kind: ScriptKind) {
-    if (app.editorKind === kind) return;
-    if (dirty && !confirm('当前话术尚未保存，放弃修改并切换？')) return;
-    app.editorDirty = false;
-    app.freshNode = null;
-    app.editorId = '';
     app.editorKind = kind;
+    app.editorId = '';
   }
   function changeKind(event: Event) {
     if (!draft) return;
@@ -108,7 +98,7 @@
     if (
       next === 'quick' &&
       (draft.branches.length ||
-        app.nodes.some((r) =>
+        records.some((r) =>
           r.node.branches.some((b) => b.targetId === draft!.id),
         ))
     ) {
@@ -117,24 +107,113 @@
       return;
     }
     draft.kind = next;
+    app.editorKind = next;
     if (next === 'quick') {
       draft.isEntry = false;
       draft.position = null;
     }
   }
   async function save() {
-    if (!draft) return;
-    await app.save(draft);
-    if (!app.error) baseline = JSON.stringify(draft);
+    if (!changed.length || app.busy) return;
+    const selectedId = app.editorId;
+    const kind = draft?.kind || app.editorKind;
+    const saved = await app.task(
+      '保存话术与流程',
+      async () => {
+        app.data = await api<Snapshot>('/scripts', 'PUT', {
+          nodes: changed,
+        } satisfies SaveScripts);
+        return true;
+      },
+      app.admin
+        ? '已保存全部修改到主库草稿，发布后同步给业务员'
+        : '已保存全部个人修改，管理员更新不会覆盖',
+    );
+    if (saved) {
+      drafts = {};
+      app.selectedId = selectedId;
+      app.browseKind = kind;
+      app.editorKind = kind;
+    }
   }
   async function resetCurrent() {
-    if (current && (await app.reset(current))) {
-      const node = app.nodes.find((n) => n.node.id === app.editorId)?.node;
-      if (node) {
-        draft = JSON.parse(JSON.stringify(node));
-        baseline = JSON.stringify(node);
-      }
+    if (current && (await app.reset(current))) delete drafts[app.editorId];
+  }
+  function moveNodes(positions: { id: string; position: Point }[]) {
+    for (const { id, position } of positions) {
+      const node = editNode(id);
+      if (node) node.position = { ...position };
     }
+  }
+  function arrange() {
+    moveNodes(
+      [...layoutFlow(flowNodes)].map(([id, position]) => ({ id, position })),
+    );
+  }
+  let branchDialog: HTMLDialogElement;
+  let pendingBranch = $state<{
+    source: string;
+    target: string;
+    branchId: string;
+    label: string;
+    title: string;
+    position: Point | null;
+  } | null>(null);
+  async function connect(
+    source: string,
+    target: string,
+    position: Point | null = null,
+    branchId = '',
+  ) {
+    const existing = records
+      .find((r) => r.node.id === source)
+      ?.node.branches.find((b) => b.id === branchId);
+    pendingBranch = {
+      source,
+      target,
+      branchId,
+      position,
+      title: '',
+      label: existing?.label || '',
+    };
+    await tick();
+    branchDialog.showModal();
+  }
+  function commitBranch() {
+    if (!pendingBranch || !pendingBranch.label.trim()) return;
+    const source = editNode(pendingBranch.source);
+    if (!source) return;
+    let target = pendingBranch.target;
+    if (pendingBranch.position) {
+      const node = newNode('flow');
+      node.title = pendingBranch.title.trim();
+      if (!node.title) return;
+      node.category = source.category;
+      node.position = pendingBranch.position;
+      drafts[node.id] = node;
+      target = node.id;
+    }
+    const branch = source.branches.find(
+      (b) => b.id === pendingBranch!.branchId,
+    );
+    if (branch) branch.label = pendingBranch.label.trim();
+    else
+      source.branches.push({
+        id: crypto.randomUUID(),
+        label: pendingBranch.label.trim(),
+        targetId: target,
+      });
+    app.editorId = pendingBranch.position ? target : source.id;
+    branchDialog.close();
+  }
+  function removeBranch() {
+    if (!pendingBranch) return;
+    const node = editNode(pendingBranch.source);
+    if (node)
+      node.branches = node.branches.filter(
+        (b) => b.id !== pendingBranch!.branchId,
+      );
+    branchDialog.close();
   }
   function addLanguage() {
     const code = languageCode.trim();
@@ -154,13 +233,19 @@
   async function remove() {
     if (!draft || !confirm('删除这条话术？请检查其他话术是否仍引用它。'))
       return;
+    const id = draft.id;
+    if (!originals.has(id)) {
+      delete drafts[id];
+      app.editorId = '';
+      return;
+    }
     await app.task('删除话术', async () => {
       app.data = await api<Snapshot>(
-        `/scripts/${encodeURIComponent(draft!.id)}`,
+        `/scripts/${encodeURIComponent(id)}`,
         'DELETE',
       );
+      delete drafts[id];
       app.editorId = '';
-      app.freshNode = null;
     });
   }
 </script>
@@ -181,7 +266,7 @@
           class="button secondary"
           onclick={() => app.navigate('library')}
           ><FileSpreadsheet size={16} />从 Excel 导入</button
-        >{/if}<button class="button primary" onclick={add}
+        >{/if}<button class="button primary" disabled={!!app.busy} onclick={add}
         ><Plus size={17} />{app.editorKind === 'quick'
           ? '新建快捷话术'
           : '新建话术'}</button
@@ -191,6 +276,7 @@
   <div class="script-type-tabs" role="tablist" aria-label="话术管理类型">
     <button
       role="tab"
+      disabled={!!app.busy}
       aria-selected={app.editorKind === 'flow'}
       class:active={app.editorKind === 'flow'}
       onclick={() => switchKind('flow')}
@@ -198,6 +284,7 @@
     >
     <button
       role="tab"
+      disabled={!!app.busy}
       aria-selected={app.editorKind === 'quick'}
       class:active={app.editorKind === 'quick'}
       onclick={() => switchKind('quick')}
@@ -215,25 +302,44 @@
       <div class="graph-panel">
         <div class="graph-toolbar">
           <span
-            ><GitBranch size={16} />{flowNodes.length} 个步骤 · {edges.length} 条连接</span
-          ><small>选择步骤，在右侧编辑内容与分支</small>
-        </div>
-        {#if nodes.length}<div class="graph-canvas">
-            <SvelteFlow
-              bind:nodes
-              bind:edges
-              fitView
-              nodesDraggable={false}
-              nodesConnectable={false}
-              elementsSelectable={true}
-              deleteKey={null}
-              onnodeclick={({ node }) => select(node.id)}
-              ><Background gap={22} /><Controls showLock={false} /></SvelteFlow
+            ><GitBranch size={16} />{flowNodes.length} 个步骤 · {connectionCount}
+            条连接</span
+          >
+          <div class="button-row">
+            <button class="text-button" disabled={!!app.busy} onclick={arrange}
+              ><LayoutGrid size={16} />自动排列</button
             >
+            <button
+              class="button primary"
+              disabled={!dirty || !!app.busy}
+              onclick={save}><Save size={16} />保存流程</button
+            >
+          </div>
+        </div>
+        <p class="graph-help">
+          拖动节点排版；从右侧圆点拉箭头到已有节点或空白处新增分支。点击连线可修改条件。
+        </p>
+        {#if flowNodes.length}<div class="graph-canvas">
+            <FlowCanvas
+              records={flowNodes}
+              selectedId={app.editorId}
+              editable={!app.busy}
+              onselect={select}
+              onpositions={moveNodes}
+              onconnect={(source, target) => connect(source, target)}
+              onblankconnect={(source, position) =>
+                connect(source, '', position)}
+              onedge={(source, id) => {
+                const branch = flowNodes
+                  .find((r) => r.node.id === source)
+                  ?.node.branches.find((b) => b.id === id);
+                if (branch) void connect(source, branch.targetId, null, id);
+              }}
+            />
           </div>{:else}<div class="empty">
             <GitBranch size={38} />
             <h3>建立你的第一条沟通路径</h3>
-            <p>新建话术后，通过分支连接到下一步。</p>
+            <p>新建话术后，拉出箭头连接到下一步。</p>
             <button class="button primary" onclick={add}>新建话术</button>
           </div>{/if}
       </div>
@@ -255,10 +361,8 @@
             >
               <MessageSquare size={19} /><span
                 ><strong>{record.node.title}</strong><small
-                  >{record.node.question ||
-                    record.node.replies[app.language] ||
-                    '暂无此语言回复'}</small
-                ><span class="tag"
+                  >{record.node.question}</small
+                ><BilingualReplies node={record.node} /><span class="tag"
                   >{record.node.category || '未分类'}{record.source ===
                   'personal'
                     ? ' · 个人版'
@@ -282,7 +386,8 @@
       {#if draft}<div class="editor-heading">
           <span class="source-label personal"
             >{app.admin ? '保存到主库草稿' : '保存到个人分支'}</span
-          >{#if dirty}<span class="unsaved">未保存</span>{/if}
+          >{#if dirty}<span class="unsaved">{changed.length} 条未保存</span
+            >{/if}
         </div>
         <form
           onsubmit={(event) => {
@@ -290,197 +395,208 @@
             void save();
           }}
         >
-          <label
-            >题目<input
-              bind:value={draft.title}
-              required
-              maxlength="160"
-            /></label
-          >
-          <label
-            >{draft.kind === 'quick'
-              ? '客户问题 / 特定回复'
-              : '问题 / 内部说明'}<textarea bind:value={draft.question} rows="2"
-            ></textarea></label
-          >
-          <label
-            >分类<input
-              bind:value={draft.category}
-              list="script-categories"
-            /><datalist id="script-categories"
-              >{#each [...new Set(app.nodes.map((r) => r.node.category))] as category}<option
-                  value={category}
-                ></option>{/each}</datalist
-            ></label
-          >
-          <label
-            >话术类型<select value={draft.kind ?? 'flow'} onchange={changeKind}
-              ><option value="flow">流程话术</option><option value="quick"
-                >快捷话术</option
-              ></select
-            ></label
-          >
-          {#if draft.kind !== 'quick'}
-            <label class="check-label"
-              ><input
-                type="checkbox"
-                bind:checked={draft.isEntry}
-              />作为流程入口</label
+          <fieldset disabled={!!app.busy}>
+            <label
+              >题目<input
+                bind:value={draft.title}
+                required
+                maxlength="160"
+              /></label
             >
-          {/if}
-          <div class="editor-section">
-            <h3>多语言回复</h3>
-            {#each Object.keys(draft.replies) as language}<label
-                >{languageName(language)}<textarea
-                  bind:value={draft.replies[language]}
-                  rows="4"
-                  placeholder={'输入完整回复，可使用 {变量名}'}
-                ></textarea></label
-              >{/each}
-            <div class="inline-field">
-              <input
-                bind:value={languageCode}
-                placeholder="语言代码，如 en"
-                aria-label="新增语言代码"
-              /><button
-                type="button"
-                class="button secondary"
-                onclick={addLanguage}>添加</button
+            <label
+              >{draft.kind === 'quick'
+                ? '客户问题 / 特定回复'
+                : '问题 / 内部说明'}<textarea
+                bind:value={draft.question}
+                rows="2"
+              ></textarea></label
+            >
+            <label
+              >分类<input
+                bind:value={draft.category}
+                list="script-categories"
+              /><datalist id="script-categories"
+                >{#each [...new Set(app.nodes.map((r) => r.node.category))] as category}<option
+                    value={category}
+                  ></option>{/each}</datalist
+              ></label
+            >
+            <label
+              >话术类型<select
+                value={draft.kind ?? 'flow'}
+                onchange={changeKind}
+                ><option value="flow">流程话术</option><option value="quick"
+                  >快捷话术</option
+                ></select
+              ></label
+            >
+            {#if draft.kind !== 'quick'}
+              <label class="check-label"
+                ><input
+                  type="checkbox"
+                  bind:checked={draft.isEntry}
+                />作为流程入口</label
               >
-            </div>
-          </div>
-          <div class="editor-section">
-            <div class="section-title">
-              <h3>变量</h3>
-              <button
-                type="button"
-                class="text-button"
-                onclick={() =>
-                  draft?.variables.push({
-                    name: '',
-                    label: '',
-                    required: true,
-                  })}><Plus size={14} />添加</button
-              >
-            </div>
-            {#each draft.variables as variable, i}<div class="variable-editor">
+            {/if}
+            <div class="editor-section">
+              <h3>多语言回复</h3>
+              {#each Object.keys(draft.replies) as language}<label
+                  >{languageName(language)}<textarea
+                    bind:value={draft.replies[language]}
+                    rows="4"
+                    placeholder={'输入完整回复，可使用 {变量名}'}
+                  ></textarea></label
+                >{/each}
+              <div class="inline-field">
                 <input
-                  aria-label="变量名"
-                  bind:value={variable.name}
-                  placeholder="变量名"
-                /><input
-                  aria-label="变量显示名称"
-                  bind:value={variable.label}
-                  placeholder="显示名称"
-                /><label class="check-label"
-                  ><input
-                    type="checkbox"
-                    bind:checked={variable.required}
-                  />必填</label
-                ><button
+                  bind:value={languageCode}
+                  placeholder="语言代码，如 en"
+                  aria-label="新增语言代码"
+                /><button
                   type="button"
-                  class="icon-button"
-                  aria-label="删除变量"
-                  onclick={() => draft?.variables.splice(i, 1)}
-                  ><X size={14} /></button
+                  class="button secondary"
+                  onclick={addLanguage}>添加</button
                 >
-              </div>{/each}
-            <p class="field-help">
-              回复中使用花括号引用变量，例如：您好，{'{客户姓名}'}。
-            </p>
-          </div>
-          {#if draft.kind !== 'quick'}<div class="editor-section">
+              </div>
+            </div>
+            <div class="editor-section">
               <div class="section-title">
-                <h3>下一步分支</h3>
+                <h3>变量</h3>
                 <button
                   type="button"
                   class="text-button"
                   onclick={() =>
-                    draft?.branches.push({
-                      id: crypto.randomUUID(),
+                    draft?.variables.push({
+                      name: '',
                       label: '',
-                      targetId: '',
+                      required: true,
                     })}><Plus size={14} />添加</button
                 >
               </div>
-              {#each draft.branches as branch, i}<div class="branch-editor">
+              {#each draft.variables as variable, i}<div
+                  class="variable-editor"
+                >
                   <input
-                    aria-label="客户回答"
-                    bind:value={branch.label}
-                    placeholder="客户回答，如：吃了"
-                    required
-                  />
-                  <div class="inline-field">
-                    <ArrowRight size={14} /><select
-                      bind:value={branch.targetId}
-                      aria-label="跳转到的话术"
-                      required
-                      ><option value="">选择下一步</option
-                      >{#each flowNodes as record}<option value={record.node.id}
-                          >{record.node.title}</option
-                        >{/each}{#if app.freshNode}<option value={draft.id}
-                          >{draft.title}（当前新步骤）</option
-                        >{/if}</select
-                    ><button
-                      type="button"
-                      class="icon-button"
-                      aria-label="删除分支"
-                      onclick={() => draft?.branches.splice(i, 1)}
-                      ><X size={15} /></button
-                    >
-                  </div>
+                    aria-label="变量名"
+                    bind:value={variable.name}
+                    placeholder="变量名"
+                  /><input
+                    aria-label="变量显示名称"
+                    bind:value={variable.label}
+                    placeholder="显示名称"
+                  /><label class="check-label"
+                    ><input
+                      type="checkbox"
+                      bind:checked={variable.required}
+                    />必填</label
+                  ><button
+                    type="button"
+                    class="icon-button"
+                    aria-label="删除变量"
+                    onclick={() => draft?.variables.splice(i, 1)}
+                    ><X size={14} /></button
+                  >
                 </div>{/each}
-            </div>{/if}
-          <div class="editor-section">
-            <h3>关联素材</h3>
-            {#each draft.materialIds.filter((id) => !app.materials.some((m) => m.id === id)) as id}<div
-                class="removed-material"
-              >
-                素材已移除<button
+              <p class="field-help">
+                回复中使用花括号引用变量，例如：您好，{'{客户姓名}'}。
+              </p>
+            </div>
+            {#if draft.kind !== 'quick'}<div class="editor-section">
+                <div class="section-title">
+                  <h3>下一步分支</h3>
+                  <button
+                    type="button"
+                    class="text-button"
+                    onclick={() =>
+                      draft?.branches.push({
+                        id: crypto.randomUUID(),
+                        label: '',
+                        targetId: '',
+                      })}><Plus size={14} />添加</button
+                  >
+                </div>
+                {#each draft.branches as branch, i}<div class="branch-editor">
+                    <input
+                      aria-label="客户回答"
+                      bind:value={branch.label}
+                      placeholder="客户回答，如：吃了"
+                      required
+                    />
+                    <div class="inline-field">
+                      <ArrowRight size={14} /><select
+                        bind:value={branch.targetId}
+                        aria-label="跳转到的话术"
+                        required
+                        ><option value="">选择下一步</option
+                        >{#each flowNodes as record}<option
+                            value={record.node.id}>{record.node.title}</option
+                          >{/each}</select
+                      ><button
+                        type="button"
+                        class="icon-button"
+                        aria-label="删除分支"
+                        onclick={() => draft?.branches.splice(i, 1)}
+                        ><X size={15} /></button
+                      >
+                    </div>
+                  </div>{/each}
+              </div>{/if}
+            <div class="editor-section">
+              <h3>关联素材</h3>
+              {#each draft.materialIds.filter((id) => !app.materials.some((m) => m.id === id)) as id}<div
+                  class="removed-material"
+                >
+                  素材已移除<button
+                    type="button"
+                    class="text-button"
+                    onclick={() => toggleMaterial(id, false)}>取消关联</button
+                  >
+                </div>{/each}
+              <div class="material-options">
+                {#each app.materials as material}<label class="check-label"
+                    ><input
+                      type="checkbox"
+                      checked={draft.materialIds.includes(material.id)}
+                      onchange={(event) =>
+                        toggleMaterial(
+                          material.id,
+                          event.currentTarget.checked,
+                        )}
+                    />{material.name}</label
+                  >{/each}{#if !app.materials.length}<p class="field-help">
+                    知识库尚无素材。
+                  </p>{/if}
+              </div>
+            </div>
+            {#if current?.official && current.source === 'personal'}<details>
+                <summary>查看当前管理员版本</summary
+                >{#each Object.entries(current.official.replies) as [language, text]}<h4
+                  >
+                    {languageName(language)}
+                  </h4>
+                  <p class="text-preview">{text}</p>{/each}<button
                   type="button"
                   class="text-button"
-                  onclick={() => toggleMaterial(id, false)}>取消关联</button
+                  onclick={resetCurrent}
+                  ><RotateCcw size={14} />放弃个人修改，恢复管理员版本</button
                 >
-              </div>{/each}
-            <div class="material-options">
-              {#each app.materials as material}<label class="check-label"
-                  ><input
-                    type="checkbox"
-                    checked={draft.materialIds.includes(material.id)}
-                    onchange={(event) =>
-                      toggleMaterial(material.id, event.currentTarget.checked)}
-                  />{material.name}</label
-                >{/each}{#if !app.materials.length}<p class="field-help">
-                  知识库尚无素材。
-                </p>{/if}
+              </details>{/if}
+            <div class="editor-footer">
+              <button
+                class="button primary"
+                disabled={!!app.busy || !dirty || !draft.title.trim()}
+                ><Save size={16} />保存话术</button
+              >{#if app.admin || !current?.official}<button
+                  type="button"
+                  class="icon-button danger"
+                  aria-label="删除话术"
+                  onclick={remove}><Trash2 size={18} /></button
+                >{/if}
             </div>
-          </div>
-          {#if current?.official && current.source === 'personal'}<details>
-              <summary>查看当前管理员版本</summary
-              >{#each Object.entries(current.official.replies) as [language, text]}<h4
-                >
-                  {languageName(language)}
-                </h4>
-                <p class="text-preview">{text}</p>{/each}<button
-                type="button"
-                class="text-button"
-                onclick={resetCurrent}
-                ><RotateCcw size={14} />放弃个人修改，恢复管理员版本</button
-              >
-            </details>{/if}
-          <div class="editor-footer">
-            <button
-              class="button primary"
-              disabled={!!app.busy || !draft.title.trim()}
-              ><Save size={16} />保存话术</button
-            >{#if !app.freshNode && (app.admin || !current?.official)}<button
-                type="button"
-                class="icon-button danger"
-                aria-label="删除话术"
-                onclick={remove}><Trash2 size={18} /></button
-              >{/if}
-          </div>
-          <p class="field-help">标识：{draft.id}</p>
+            <p class="field-help">
+              保存会包含所有未保存的话术、布局与连接。标识：{draft.id}
+            </p>
+          </fieldset>
         </form>
       {:else}<div class="empty small">
           <GitBranch size={32} />
@@ -496,3 +612,67 @@
     </aside>
   </div>
 </section>
+
+<dialog
+  bind:this={branchDialog}
+  class="dialog branch-dialog"
+  aria-labelledby="branch-dialog-title"
+  onclose={() => (pendingBranch = null)}
+>
+  {#if pendingBranch}
+    <form
+      onsubmit={(event) => {
+        event.preventDefault();
+        commitBranch();
+      }}
+    >
+      <div class="dialog-header">
+        <h2 id="branch-dialog-title">
+          {pendingBranch.branchId ? '修改分支' : '新增分支'}
+        </h2>
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="关闭分支编辑"
+          onclick={() => branchDialog.close()}><X size={18} /></button
+        >
+      </div>
+      <p class="field-help">
+        从「{records.find((r) => r.node.id === pendingBranch!.source)?.node
+          .title}」{pendingBranch.position
+          ? '创建子话术'
+          : `连接到「${records.find((r) => r.node.id === pendingBranch!.target)?.node.title}」`}
+      </p>
+      <label
+        >分支条件 / 客户回答<input
+          bind:value={pendingBranch.label}
+          required
+          maxlength="200"
+          placeholder="例如：吃了、没吃、想了解价格"
+        /></label
+      >
+      {#if pendingBranch.position}<label
+          >子话术题目<input
+            bind:value={pendingBranch.title}
+            required
+            maxlength="160"
+            placeholder="输入下一步话术题目"
+          /></label
+        >{/if}
+      <p class="field-help">确认后可在右侧维护回复；点击“保存流程”统一保存。</p>
+      <div class="dialog-actions">
+        {#if pendingBranch.branchId}<button
+            type="button"
+            class="button secondary"
+            onclick={removeBranch}><Trash2 size={16} />删除分支</button
+          >{/if}
+        <button
+          type="button"
+          class="button secondary"
+          onclick={() => branchDialog.close()}>取消</button
+        >
+        <button class="button primary">确认分支</button>
+      </div>
+    </form>
+  {/if}
+</dialog>

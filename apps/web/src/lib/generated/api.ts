@@ -164,6 +164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scripts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["save_nodes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scripts/import": {
         parameters: {
             query?: never;
@@ -360,6 +376,9 @@ export interface components {
         };
         /** @enum {string} */
         Role: "admin" | "sales";
+        SaveScripts: {
+            nodes: components["schemas"]["ScriptNode"][];
+        };
         /** @enum {string} */
         ScriptKind: "flow" | "quick";
         ScriptNode: {
@@ -644,6 +663,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Manifest"];
+                };
+            };
+        };
+    };
+    save_nodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveScripts"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
                 };
             };
         };
