@@ -28,6 +28,10 @@ jobs:
       - run: cargo test --workspace --locked
       - run: bun run contract
       - run: git diff --exit-code -- apps/web/src/lib/generated/api.ts apps/web/static/openapi.json
+      - name: Install browser for UI regression tests
+        run: bunx playwright install chromium
+      - name: Test workflow and packaged frontend routes
+        run: bun run test:e2e
       - name: Build Windows x64 NSIS installer
         run: bun run desktop:build --target x86_64-pc-windows-msvc --bundles nsis --ci
       - name: Upload Windows installer

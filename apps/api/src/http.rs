@@ -283,6 +283,14 @@ pub async fn import_scripts(
         .find(|m| m.id == input.material_id)
         .ok_or_else(|| Error::missing("请选择已导入的 Excel 素材"))?;
     let nodes = files::scripts_from_rows(&m.rows, &input.mapping)?;
+    let mut effective: BTreeMap<_, _> = state
+        .list::<ScriptNode>("draft_nodes")
+        .await?
+        .into_iter()
+        .map(|n| (n.id.clone(), n))
+        .collect();
+    effective.extend(nodes.iter().cloned().map(|n| (n.id.clone(), n)));
+    crate::db::validate_script_kinds(&effective.into_values().collect::<Vec<_>>())?;
     if !input.preview {
         let mut tx = state.pool.begin().await?;
         for node in &nodes {
@@ -562,6 +570,7 @@ pub async fn demo(State(state): State<AppState>) -> Result<Json<Snapshot>> {
             title: title.into(),
             question: question.into(),
             category: "销售入门（示例）".into(),
+            kind: ScriptKind::Flow,
             is_entry: id == "demo-start",
             replies: BTreeMap::from([("zh-CN".into(), zh.into()), ("ko".into(), ko.into())]),
             variables,

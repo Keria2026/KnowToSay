@@ -1,3 +1,6 @@
+/// SvelteKit routes on `/`; an explicit `/index.html` becomes a missing route.
+pub const QUICK_SEARCH_PATH: &str = "/?quickSearch=1";
+
 /// Screen coordinates are physical pixels, including negative monitor origins.
 pub fn active_edge(
     point: (i32, i32),
@@ -20,6 +23,21 @@ pub fn active_edge(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn search_window_resolves_to_the_sveltekit_root_in_dev_and_packaged_apps() {
+        for base in [
+            "http://127.0.0.1:1420/",
+            "http://tauri.localhost/",
+            "tauri://localhost/",
+        ] {
+            let url = reqwest::Url::parse(base)
+                .unwrap()
+                .join(QUICK_SEARCH_PATH)
+                .unwrap();
+            assert_eq!(url.path(), "/");
+            assert_eq!(url.query(), Some("quickSearch=1"));
+        }
+    }
     #[test]
     fn disabled_edges_and_corners_are_respected() {
         let top = vec!["top".into()];

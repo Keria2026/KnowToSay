@@ -28,6 +28,7 @@ use utoipa::OpenApi;
         Branch,
         Position,
         ScriptNode,
+        ScriptKind,
         SheetRow,
         Material,
         CreateMaterialCategory,
@@ -46,7 +47,8 @@ use utoipa::OpenApi;
         ApiError,
         http::ImportScripts,
         DesktopPreferences,
-        DesktopStatus
+        DesktopStatus,
+        SearchPanelMode
     ))
 )]
 pub struct ApiDoc;

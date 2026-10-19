@@ -1,5 +1,6 @@
 import type { components } from './generated/api';
 export type ScriptNode = components['schemas']['ScriptNode'];
+export type ScriptKind = components['schemas']['ScriptKind'];
 export type NodeRecord = components['schemas']['NodeRecord'];
 export type Material = components['schemas']['Material'];
 export type Snapshot = components['schemas']['Snapshot'];
@@ -14,3 +15,4 @@ export type MaterialSearchResult =
 export type SheetPage = components['schemas']['SheetPage'];
 export type DesktopPreferences = components['schemas']['DesktopPreferences'];
 export type DesktopStatus = components['schemas']['DesktopStatus'];
+export type SearchPanelMode = components['schemas']['SearchPanelMode'];

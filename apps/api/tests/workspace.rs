@@ -50,6 +50,7 @@ fn node(id: &str, text: &str) -> ScriptNode {
         title: format!("话术{id}"),
         question: "测试问题".into(),
         category: "测试".into(),
+        kind: ScriptKind::Flow,
         is_entry: true,
         replies: BTreeMap::from([("ko".into(), text.into())]),
         variables: vec![],
@@ -711,4 +712,143 @@ async fn material_category_migration_preserves_existing_assignments_and_empty_ca
             .unwrap(),
         vec!["原有分类"]
     );
+}
+
+#[tokio::test]
+async fn flow_and_quick_scripts_stay_distinct_and_personal_quick_replies_survive_updates() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let mut terminal = node("terminal", "流程结束回复");
+    terminal.is_entry = false;
+    let mut root = node("root", "开始流程");
+    root.branches.push(Branch {
+        id: "next".into(),
+        label: "继续".into(),
+        target_id: terminal.id.clone(),
+    });
+    let mut quick = node("quick-price", "价格说明");
+    quick.kind = ScriptKind::Quick;
+    quick.is_entry = false;
+    admin.save_node(terminal.clone()).await.unwrap();
+    admin.save_node(root.clone()).await.unwrap();
+    admin.save_node(quick.clone()).await.unwrap();
+    let mut invalid = quick.clone();
+    invalid.is_entry = true;
+    assert!(admin.save_node(invalid).await.is_err());
+    let mut linked = root.clone();
+    linked.branches[0].target_id = quick.id.clone();
+    assert!(admin.save_node(linked).await.is_err());
+    let mut conversion = terminal.clone();
+    conversion.kind = ScriptKind::Quick;
+    assert!(admin.save_node(conversion).await.is_err());
+    let mut legacy = serde_json::to_value(&terminal).unwrap();
+    legacy.as_object_mut().unwrap().remove("kind");
+    assert_eq!(
+        serde_json::from_value::<ScriptNode>(legacy).unwrap().kind,
+        ScriptKind::Flow
+    );
+    admin.publish().await.unwrap();
+    let address = server(admin.clone(), None).await;
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .find(|r| r.node.id == "terminal")
+            .unwrap()
+            .node
+            .kind,
+        ScriptKind::Flow
+    );
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .find(|r| r.node.id == quick.id)
+            .unwrap()
+            .node
+            .kind,
+        ScriptKind::Quick
+    );
+    let mut personal = quick.clone();
+    personal.replies.insert("ko".into(), "我的快捷回复".into());
+    sales.save_node(personal.clone()).await.unwrap();
+    quick
+        .replies
+        .insert("ko".into(), "管理员最新快捷回复".into());
+    admin.save_node(quick.clone()).await.unwrap();
+    admin.publish().await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    let record = snapshot
+        .nodes
+        .iter()
+        .find(|r| r.node.id == quick.id)
+        .unwrap();
+    assert_eq!(record.node, personal);
+    assert_eq!(record.official.as_ref().unwrap(), &quick);
+    let package = backup::export_package(&admin, None).await.unwrap();
+    let offline = AppState::open(dir.path().join("offline")).await.unwrap();
+    backup::import_package(&offline, &package.path)
+        .await
+        .unwrap();
+    assert_eq!(
+        offline
+            .snapshot()
+            .await
+            .unwrap()
+            .nodes
+            .iter()
+            .find(|r| r.node.id == quick.id)
+            .unwrap()
+            .node
+            .kind,
+        ScriptKind::Quick
+    );
+}
+
+#[test]
+fn excel_import_supports_quick_replies_and_rejects_flow_fields_on_them() {
+    let row = |row, cells: &[&str]| SheetRow {
+        sheet: "问答".into(),
+        row,
+        cells: cells.iter().map(|s| s.to_string()).collect(),
+    };
+    let mut rows = vec![
+        row(
+            1,
+            &[
+                "id",
+                "title",
+                "话术类型",
+                "question",
+                "reply:ko",
+                "isEntry",
+                "branches",
+            ],
+        ),
+        row(
+            2,
+            &[
+                "faq",
+                "价格问题",
+                "快捷话术",
+                "客户说太贵了",
+                "가격을 안내드립니다.",
+                "false",
+                "[]",
+            ],
+        ),
+    ];
+    let mapping = BTreeMap::from([("kind".into(), "话术类型".into())]);
+    let nodes = files::scripts_from_rows(&rows, &mapping).unwrap();
+    assert_eq!(nodes[0].kind, ScriptKind::Quick);
+    assert_eq!(nodes[0].question, "客户说太贵了");
+    rows[1].cells[5] = "true".into();
+    assert!(files::scripts_from_rows(&rows, &mapping).is_err());
+    rows[1].cells[5] = "false".into();
+    rows[1].cells[6] = r#"[{"id":"next","label":"继续","targetId":"other"}]"#.into();
+    assert!(files::scripts_from_rows(&rows, &mapping).is_err());
 }

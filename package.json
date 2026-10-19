@@ -10,7 +10,7 @@
     "build": "bun run --cwd apps/web build",
     "check": "bun run --cwd apps/web check",
     "test": "bun test apps/web/src",
-    "test:e2e": "playwright test",
+    "test:e2e": "bun run build && playwright test",
     "format": "prettier --write apps/web/src apps/web/*.js apps/web/*.ts playwright.config.ts package.json apps/web/package.json",
     "format:check": "prettier --check apps/web/src apps/web/*.js apps/web/*.ts playwright.config.ts package.json apps/web/package.json",
     "api": "cargo run -p knowtosay --bin knowtosay-api",

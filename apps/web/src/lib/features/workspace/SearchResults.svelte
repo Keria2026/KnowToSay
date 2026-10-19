@@ -6,7 +6,7 @@
     FileSpreadsheet,
   } from 'lucide-svelte';
   import { app } from './store.svelte';
-  import { searchScripts, kindName } from '$lib/utils/scripts';
+  import { searchScripts, kindName, scriptKindName } from '$lib/utils/scripts';
   import { api } from './api';
   import type { MaterialSearchResult } from '$lib/types';
   let scripts = $derived(searchScripts(app.nodes, app.query));
@@ -61,7 +61,8 @@
                 record.node.question ||
                 '此语言暂无回复'}</small
             ><span class="tag"
-              >{record.node.category || '未分类'}{record.source === 'personal'
+              >{scriptKindName(record.node.kind)} · {record.node.category ||
+                '未分类'}{record.source === 'personal'
                 ? ' · 个人版本'
                 : ''}</span
             ></span

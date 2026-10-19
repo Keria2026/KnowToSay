@@ -4,14 +4,14 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from xml.sax.saxutils import escape
 import json
 
-headers = ['id', 'title', 'question', 'category', 'isEntry', 'reply:zh-CN', 'reply:ko', 'reply:en', 'variables', 'branches', 'materialIds']
+headers = ['id', 'title', 'question', 'category', 'kind', 'isEntry', 'reply:zh-CN', 'reply:ko', 'reply:en', 'variables', 'branches', 'materialIds']
 variables = json.dumps([{'name': '客户姓名', 'label': '客户姓名', 'required': True}], ensure_ascii=False)
 branches = json.dumps([{'id': 'start-yes', 'label': '吃了', 'targetId': 'yes'}, {'id': 'start-no', 'label': '还没吃', 'targetId': 'no'}], ensure_ascii=False)
 rows = [headers,
-        ['start', '开场问候', '先问候客户', '入门示例', 'true', '您好，{客户姓名}，吃饭了吗？', '{客户姓名}님, 식사하셨어요?', 'Hello {客户姓名}, have you eaten?', variables, branches, '[]'],
-        ['yes', '已经用餐', '客户已经用餐', '入门示例', 'false', '祝您今天愉快！', '좋은 하루 보내세요!', 'Have a lovely day!', '[]', '[{"id":"yes-next","label":"继续","targetId":"product"}]', '[]'],
-        ['no', '尚未用餐', '客户尚未用餐', '入门示例', 'false', '记得按时吃饭。', '식사 꼭 챙기세요.', 'Remember to eat on time.', '[]', '[{"id":"no-next","label":"继续","targetId":"product"}]', '[]'],
-        ['product', '介绍产品', '两个分支汇合', '入门示例', 'false', '我把详细资料发给您。', '자세한 자료를 보내드릴게요.', 'I will send you the details.', '[]', '[]', '[]']]
+        ['start', '开场问候', '先问候客户', '入门示例', 'flow', 'true', '您好，{客户姓名}，吃饭了吗？', '{客户姓名}님, 식사하셨어요?', 'Hello {客户姓名}, have you eaten?', variables, branches, '[]'],
+        ['yes', '已经用餐', '客户已经用餐', '入门示例', 'flow', 'false', '祝您今天愉快！', '좋은 하루 보내세요!', 'Have a lovely day!', '[]', '[{"id":"yes-next","label":"继续","targetId":"product"}]', '[]'],
+        ['no', '尚未用餐', '客户尚未用餐', '入门示例', 'flow', 'false', '记得按时吃饭。', '식사 꼭 챙기세요.', 'Remember to eat on time.', '[]', '[{"id":"no-next","label":"继续","targetId":"product"}]', '[]'],
+        ['product', '介绍产品', '两个分支汇合', '入门示例', 'flow', 'false', '我把详细资料发给您。', '자세한 자료를 보내드릴게요.', 'I will send you the details.', '[]', '[]', '[]']]
 
 def column(index):
     result = ''

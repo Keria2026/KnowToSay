@@ -152,14 +152,7 @@ fn main() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _, event| {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        if app
-                            .get_webview_window("search")
-                            .is_some_and(|w| w.is_visible().unwrap_or(false))
-                        {
-                            desktop_support::hide_search(app)
-                        } else {
-                            desktop_support::show_search(app)
-                        }
+                        desktop_support::toggle_search(app)
                     }
                 })
                 .build(),
@@ -200,6 +193,7 @@ fn main() {
             reveal_material,
             window_mode,
             desktop_support::open_search,
+            desktop_support::open_quick_replies,
             desktop_support::close_search,
             desktop_support::resize_search,
             desktop_support::open_script,

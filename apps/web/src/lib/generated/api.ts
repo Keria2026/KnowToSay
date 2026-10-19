@@ -293,6 +293,7 @@ export interface components {
         };
         DesktopStatus: {
             preferences: components["schemas"]["DesktopPreferences"];
+            searchMode: components["schemas"]["SearchPanelMode"];
             shortcutRegistered: boolean;
             warning?: string | null;
         };
@@ -359,11 +360,14 @@ export interface components {
         };
         /** @enum {string} */
         Role: "admin" | "sales";
+        /** @enum {string} */
+        ScriptKind: "flow" | "quick";
         ScriptNode: {
             branches: components["schemas"]["Branch"][];
             category: string;
             id: string;
             isEntry: boolean;
+            kind?: components["schemas"]["ScriptKind"];
             materialIds: string[];
             position?: null | components["schemas"]["Position"];
             question: string;
@@ -373,6 +377,8 @@ export interface components {
             title: string;
             variables: components["schemas"]["Variable"][];
         };
+        /** @enum {string} */
+        SearchPanelMode: "search" | "quick";
         SheetPage: {
             rows: components["schemas"]["SheetRow"][];
             /** Format: int32 */

@@ -1,4 +1,4 @@
-import type { ScriptNode, Material, NodeRecord } from '$lib/types';
+import type { ScriptNode, ScriptKind, Material, NodeRecord } from '$lib/types';
 
 export function replyPreview(
   node: ScriptNode,
@@ -30,12 +30,13 @@ export function replyPreview(
   };
 }
 
-export function newNode(): ScriptNode {
+export function newNode(kind: ScriptKind = 'flow'): ScriptNode {
   return {
     id: crypto.randomUUID(),
     title: '新话术',
     question: '',
     category: '未分类',
+    kind,
     isEntry: false,
     replies: { 'zh-CN': '', ko: '' },
     variables: [],
@@ -94,3 +95,6 @@ export const kindName = (kind: string) =>
   ({ text: '文字', image: '图片', video: '视频', excel: '表格', file: '文件' })[
     kind
   ] || '文件';
+
+export const scriptKindName = (kind: ScriptNode['kind']) =>
+  kind === 'quick' ? '快捷话术' : '流程话术';

@@ -208,6 +208,35 @@ impl AppState {
         validate_node(&node)?;
         let _guard = self.write.lock().await;
         let w = self.required_workspace().await?;
+        let mut effective: BTreeMap<String, ScriptNode> = BTreeMap::new();
+        let tables = if w.role == Role::Admin {
+            vec!["draft_nodes"]
+        } else {
+            vec!["personal_dependencies", "official_nodes", "personal_nodes"]
+        };
+        for table in tables {
+            for n in self.list::<ScriptNode>(table).await? {
+                effective.insert(n.id.clone(), n);
+            }
+        }
+        if node.kind == ScriptKind::Quick
+            && effective
+                .get(&node.id)
+                .is_none_or(|n| n.kind != ScriptKind::Quick)
+            && effective
+                .values()
+                .any(|n| n.branches.iter().any(|b| b.target_id == node.id))
+        {
+            return Err(Error::invalid("此话术仍被流程引用，请先移除指向它的连接"));
+        }
+        effective.insert(node.id.clone(), node.clone());
+        if node.branches.iter().any(|b| {
+            effective
+                .get(&b.target_id)
+                .is_some_and(|n| n.kind == ScriptKind::Quick)
+        }) {
+            return Err(Error::invalid("流程分支只能连接流程话术，请选择其他下一步"));
+        }
         if w.role == Role::Admin {
             return self.put("draft_nodes", &node.id, &node).await;
         }
@@ -415,6 +444,11 @@ pub fn validate_node(n: &ScriptNode) -> Result<()> {
     if n.replies.len() > 50 || n.branches.len() > 200 || n.variables.len() > 100 {
         return Err(Error::invalid("话术内容超过限制"));
     }
+    if n.kind == ScriptKind::Quick && (n.is_entry || !n.branches.is_empty()) {
+        return Err(Error::invalid(
+            "快捷话术不参与流程，请先取消流程入口并移除分支",
+        ));
+    }
     if n.position
         .as_ref()
         .is_some_and(|p| !p.x.is_finite() || !p.y.is_finite())
@@ -429,7 +463,24 @@ pub fn validate_node(n: &ScriptNode) -> Result<()> {
     }
     Ok(())
 }
+pub fn validate_script_kinds(nodes: &[ScriptNode]) -> Result<()> {
+    let quick: BTreeSet<_> = nodes
+        .iter()
+        .filter(|n| n.kind == ScriptKind::Quick)
+        .map(|n| &n.id)
+        .collect();
+    for n in nodes {
+        if n.branches.iter().any(|b| quick.contains(&b.target_id)) {
+            return Err(Error::invalid(format!(
+                "话术「{}」仍连接到快捷话术，请先移除该流程连接",
+                n.title
+            )));
+        }
+    }
+    Ok(())
+}
 pub fn validate_manifest_content(nodes: &[ScriptNode], materials: &[Material]) -> Result<()> {
+    validate_script_kinds(nodes)?;
     if nodes.len() > 100_000 || materials.len() > 100_000 {
         return Err(Error::invalid("资料数量超过限制"));
     }

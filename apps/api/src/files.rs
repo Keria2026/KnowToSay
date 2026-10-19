@@ -358,6 +358,16 @@ pub fn scripts_from_rows(
             title,
             question: get("question"),
             category: get("category"),
+            kind: match get("kind").trim() {
+                "" | "flow" | "流程话术" => ScriptKind::Flow,
+                "quick" | "快捷话术" => ScriptKind::Quick,
+                _ => {
+                    return Err(Error::invalid(format!(
+                        "第 {} 行话术类型需为 flow 或 quick",
+                        row.row
+                    )));
+                }
+            },
             is_entry: matches!(get("isEntry").as_str(), "true" | "1" | "是"),
             replies,
             variables: serde_json::from_str(&parse("variables")).map_err(|_| {

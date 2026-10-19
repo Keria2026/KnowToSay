@@ -18,14 +18,18 @@
     replyPreview,
     languageName,
     kindName,
+    scriptKindName,
   } from '$lib/utils/scripts';
   import type {
     NodeRecord,
     MaterialSearchResult,
     DesktopStatus,
+    SearchPanelMode,
   } from '$lib/types';
   import './quick-search.css';
   let query = $state('');
+  let mode = $state<SearchPanelMode>('search');
+  let visibleLimit = $state(50);
   let selected = $state<NodeRecord | null>(null);
   let values = $state<Record<string, string>>({});
   let materials = $state<MaterialSearchResult[]>([]);
@@ -33,8 +37,18 @@
   let activeIndex = $state(0);
   let input: HTMLInputElement;
   let copyHides = true;
+  let quickScripts = $derived(
+    searchScripts(
+      app.nodes.filter((r) => r.node.kind === 'quick'),
+      query,
+    ),
+  );
   let scripts = $derived(
-    query.trim() ? searchScripts(app.nodes, query).slice(0, 8) : [],
+    mode === 'quick'
+      ? quickScripts.slice(0, visibleLimit)
+      : query.trim()
+        ? searchScripts(app.nodes, query).slice(0, 8)
+        : [],
   );
   let preview = $derived(
     selected ? replyPreview(selected.node, app.language, values) : null,
@@ -65,7 +79,7 @@
   $effect(() => {
     const q = query.trim();
     let active = true;
-    if (!q || !app.workspace) {
+    if (mode === 'quick' || !q || !app.workspace) {
       materials = [];
       searching = false;
       return;
@@ -93,30 +107,38 @@
   $effect(() => {
     if (native())
       void invoke('resize_search', {
-        expanded: !!query.trim() || !!selected,
+        expanded: mode === 'quick' || !!query.trim() || !!selected,
       }).catch((e) => (app.error = String(e)));
   });
   onMount(() => {
+    if (new URLSearchParams(window.location.search).get('panel') === 'quick')
+      mode = 'quick';
     void tick().then(() => input?.focus());
     if (!native()) return;
-    const setup = listen('quick-search-open', async () => {
-      query = '';
-      selected = null;
-      values = {};
-      activeIndex = 0;
-      await app.refresh();
-      try {
-        copyHides = (await invoke<DesktopStatus>('desktop_status')).preferences
-          .copyHides;
-      } catch (e) {
-        app.error = String(e);
-      }
-      await tick();
-      input?.focus();
-    });
+    const setup = listen<SearchPanelMode>(
+      'quick-search-open',
+      async (event) => {
+        mode = event.payload;
+        visibleLimit = 50;
+        query = '';
+        selected = null;
+        values = {};
+        activeIndex = 0;
+        await app.refresh();
+        try {
+          copyHides = (await invoke<DesktopStatus>('desktop_status'))
+            .preferences.copyHides;
+        } catch (e) {
+          app.error = String(e);
+        }
+        await tick();
+        input?.focus();
+      },
+    );
     void invoke<DesktopStatus>('desktop_status')
       .then((status) => {
         copyHides = status.preferences.copyHides;
+        mode = status.searchMode;
       })
       .catch((e) => (app.error = String(e)));
     return () => {
@@ -137,10 +159,26 @@
   }
   async function copy() {
     if (!preview?.ready) return;
-    await app.task('复制回复', () => copyText(preview!.text));
+    await copyReply(preview.text);
+  }
+  async function copyReply(text: string) {
+    await app.task('复制回复', () => copyText(text));
     if (!app.error) {
       if (native() && copyHides) await close();
       else app.notify('已复制回复');
+    }
+  }
+  function switchMode(next: SearchPanelMode) {
+    if (native()) {
+      void invoke(
+        next === 'quick' ? 'open_quick_replies' : 'open_search',
+      ).catch((e) => (app.error = String(e)));
+    } else {
+      mode = next;
+      query = '';
+      selected = null;
+      visibleLimit = 50;
+      activeIndex = 0;
     }
   }
   function keyboard(event: KeyboardEvent) {
@@ -181,7 +219,9 @@
         activeIndex = 0;
       }}
       aria-label="独立搜索栏"
-      placeholder="搜索话术、素材、表格内容…"
+      placeholder={mode === 'quick'
+        ? '搜索客户问题或快捷回复…'
+        : '搜索话术、素材、表格内容…'}
       autocomplete="off"
     /><select bind:value={app.language} aria-label="独立搜索发送语言"
       >{#each app.languages as language}<option value={language}
@@ -191,21 +231,21 @@
       ><X size={18} /></button
     >
   </header>
-  {#if !query.trim() && !selected}<footer class="quick-search-hint">
-      <span>{app.workspace ? app.workspace.name : '请先创建或加入工作组'}</span
-      ><span>↑ ↓ 选择 · Enter 查看 · Esc 收起</span>
-    </footer>
-  {:else if selected}
+  {#if selected}
     <section class="quick-search-detail">
       <div class="section-title">
         <button class="text-button" onclick={() => (selected = null)}
-          ><ArrowLeft size={14} />返回结果</button
+          ><ArrowLeft size={14} />返回{mode === 'quick'
+            ? '回复表'
+            : '结果'}</button
         ><button class="text-button" onclick={() => openMain(selected!.node.id)}
           >在工作台打开<ArrowUpRight size={14} /></button
         >
       </div>
       <h2>{selected.node.title}</h2>
-      <p class="muted">{selected.node.question}</p>
+      <p class="muted">
+        {scriptKindName(selected.node.kind)} · {selected.node.question}
+      </p>
       {#if variables.length}<div class="quick-variables">
           {#each variables as variable}<label
               >{variable.label || variable.name}<input
@@ -233,6 +273,91 @@
         >
       </div>
     </section>
+  {:else if mode === 'quick'}
+    <div class="quick-reply-heading">
+      <div>
+        <h2>快捷话术回复表</h2>
+        <p class="field-help">
+          {quickScripts.length} 条问答 · {languageName(app.language)}
+        </p>
+      </div>
+      <button class="text-button" onclick={() => switchMode('search')}
+        >全库搜索<ArrowUpRight size={14} /></button
+      >
+    </div>
+    <div class="quick-reply-table-scroll">
+      <table class="quick-reply-table">
+        <thead
+          ><tr><th>客户问题 / 回复</th><th>对应话术</th><th>操作</th></tr
+          ></thead
+        >
+        <tbody
+          >{#each scripts as record, i}{@const rowPreview = replyPreview(
+              record.node,
+              app.language,
+              {},
+            )}
+            <tr class:active={activeIndex === i}
+              ><td
+                ><button class="text-button" onclick={() => select(record)}
+                  >{record.node.title}</button
+                ><small>{record.node.question}</small
+                >{#if record.source === 'personal'}<span
+                    class="source-label personal">个人版本</span
+                  >{/if}</td
+              ><td
+                ><p>
+                  {rowPreview.languageMissing
+                    ? '暂无此语言回复'
+                    : rowPreview.text}
+                </p></td
+              ><td
+                ><button
+                  class="button primary"
+                  disabled={!!app.busy}
+                  aria-label={`${rowPreview.ready ? '复制' : '查看'}${record.node.title}`}
+                  onclick={() =>
+                    rowPreview.ready
+                      ? copyReply(rowPreview.text)
+                      : select(record)}
+                  >{rowPreview.ready
+                    ? '复制'
+                    : rowPreview.languageMissing
+                      ? '查看'
+                      : '填写变量'}</button
+                ></td
+              ></tr
+            >
+          {/each}</tbody
+        >
+      </table>
+      {#if !scripts.length}<div class="empty small">
+          <MessageSquare size={30} />
+          <p>
+            {query.trim()
+              ? '没有匹配的快捷话术'
+              : '请先在“话术与流程 → 快捷话术”中添加客户问答。'}
+          </p>
+        </div>{/if}
+      {#if quickScripts.length > visibleLimit}<button
+          class="text-button"
+          onclick={() => (visibleLimit += 50)}
+          >显示更多（已显示 {scripts.length} / {quickScripts.length}）</button
+        >{/if}
+    </div>
+    <footer class="quick-search-hint">
+      <span>选择后复制 · Esc 收起</span><button
+        class="text-button"
+        onclick={() => openMain()}
+        >打开完整工作台<ArrowUpRight size={13} /></button
+      >
+    </footer>
+  {:else if !query.trim()}<footer class="quick-search-hint">
+      <span>{app.workspace ? app.workspace.name : '请先创建或加入工作组'}</span
+      ><button class="text-button" onclick={() => switchMode('quick')}
+        >快捷话术回复表</button
+      >
+    </footer>
   {:else}
     <div class="quick-search-results">
       {#if scripts.length}<div class="section-label">
@@ -247,7 +372,9 @@
                 record.node.question}</small
             ></span
           ><span class="source-label"
-            >{record.source === 'personal' ? '个人' : '官方'}</span
+            >{scriptKindName(record.node.kind)} · {record.source === 'personal'
+              ? '个人'
+              : '官方'}</span
           ></button
         >{/each}{#if materials.length}<div class="section-label">
           素材与表格

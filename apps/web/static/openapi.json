@@ -577,11 +577,15 @@
         "type": "object",
         "required": [
           "preferences",
-          "shortcutRegistered"
+          "shortcutRegistered",
+          "searchMode"
         ],
         "properties": {
           "preferences": {
             "$ref": "#/components/schemas/DesktopPreferences"
+          },
+          "searchMode": {
+            "$ref": "#/components/schemas/SearchPanelMode"
           },
           "shortcutRegistered": {
             "type": "boolean"
@@ -845,6 +849,13 @@
           "sales"
         ]
       },
+      "ScriptKind": {
+        "type": "string",
+        "enum": [
+          "flow",
+          "quick"
+        ]
+      },
       "ScriptNode": {
         "type": "object",
         "required": [
@@ -873,6 +884,9 @@
           },
           "isEntry": {
             "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ScriptKind"
           },
           "materialIds": {
             "type": "array",
@@ -912,6 +926,13 @@
             }
           }
         }
+      },
+      "SearchPanelMode": {
+        "type": "string",
+        "enum": [
+          "search",
+          "quick"
+        ]
       },
       "SheetPage": {
         "type": "object",

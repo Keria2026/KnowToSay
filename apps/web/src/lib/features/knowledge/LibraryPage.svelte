@@ -53,6 +53,7 @@
     ['title', '题目（必填）'],
     ['question', '问题 / 说明'],
     ['category', '分类'],
+    ['kind', '话术类型（flow / quick）'],
     ['isEntry', '流程入口'],
     ['reply:zh-CN', '中文回复'],
     ['reply:ko', '韩语回复'],
