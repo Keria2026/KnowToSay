@@ -17,9 +17,13 @@
   } from 'lucide-svelte';
   import { app } from '../workspace/store.svelte';
   import { api } from '../workspace/api';
-  import { replyPreview, newNode } from '$lib/utils/scripts';
-  import type { Material, Snapshot } from '$lib/types';
+  import { replyPreview, newNode, scriptKindName } from '$lib/utils/scripts';
+  import type { Material, Snapshot, ScriptKind } from '$lib/types';
+  import FlowCanvas from './FlowCanvas.svelte';
+  import { connectedFlow } from './flow';
   let node = $derived(app.current?.node);
+  let showFlow = $state(false);
+  let completeFlow = $derived(connectedFlow(app.nodes, node?.id || ''));
   let preview = $derived(
     node ? replyPreview(node, app.language, app.values) : null,
   );
@@ -44,7 +48,21 @@
         ]
       : [],
   );
-  let entries = $derived(app.nodes.filter((n) => n.node.isEntry));
+  let flows = $derived(app.nodes.filter((n) => n.node.kind !== 'quick'));
+  let entries = $derived(flows.filter((n) => n.node.isEntry));
+  let quick = $derived(app.nodes.filter((n) => n.node.kind === 'quick'));
+  let choices = $derived(
+    app.browseKind === 'quick' ? quick : entries.length ? entries : flows,
+  );
+  function browse(kind: ScriptKind) {
+    app.browseKind = kind;
+    const first = kind === 'quick' ? quick[0] : entries[0] || flows[0];
+    if (first) app.select(first.node.id, true);
+    else {
+      app.selectedId = '';
+      app.history = [];
+    }
+  }
   const icon = (kind: string) =>
     ({ image: Image, video: Film, excel: FileSpreadsheet, text: FileText })[
       kind
@@ -52,6 +70,7 @@
   function add() {
     app.freshNode = newNode();
     app.editorId = '';
+    app.editorKind = 'flow';
     app.nav = 'scripts';
   }
 </script>
@@ -86,27 +105,92 @@
   </div>
 {:else}
   <div class:compact-workbench={app.compact} class="workbench-grid">
+    {#if showFlow && node && node.kind !== 'quick'}
+      <section class="workbench-flow-overview" aria-label="完整流程预览">
+        <div class="graph-toolbar">
+          <span
+            ><GitBranch size={17} />完整流程 · {completeFlow.length} 个步骤</span
+          ><button class="text-button" onclick={() => (showFlow = false)}
+            >收起流程图</button
+          >
+        </div>
+        <p class="graph-help">
+          高亮为当前话术。点击步骤查看回复，滚轮缩放，拖动空白处平移。
+        </p>
+        <div class="workbench-flow-canvas">
+          <FlowCanvas
+            records={completeFlow}
+            selectedId={node.id}
+            label="销售工作台完整流程图"
+            onselect={(id) => app.select(id, true)}
+          />
+        </div>
+      </section>
+    {/if}
     {#if !app.compact}<aside class="flow-list">
-        <div class="section-label">流程入口 <span>{entries.length}</span></div>
-        {#each entries.length ? entries : app.nodes as entry}<button
+        <div
+          class="script-type-tabs compact-tabs"
+          role="tablist"
+          aria-label="工作台话术类型"
+        >
+          <button
+            role="tab"
+            aria-selected={app.browseKind === 'flow'}
+            class:active={app.browseKind === 'flow'}
+            onclick={() => browse('flow')}>流程话术</button
+          >
+          <button
+            role="tab"
+            aria-selected={app.browseKind === 'quick'}
+            class:active={app.browseKind === 'quick'}
+            onclick={() => browse('quick')}>快捷话术</button
+          >
+        </div>
+        <div class="section-label">
+          {app.browseKind === 'quick' ? '快捷问答' : '流程入口'}
+          <span>{choices.length}</span>
+        </div>
+        {#each choices as entry}<button
             class:active={app.current?.node.category === entry.node.category &&
               app.selectedId === entry.node.id}
             onclick={() => app.select(entry.node.id, true)}
-            ><span class="flow-list-icon"><GitBranch size={17} /></span><span
+            ><span class="flow-list-icon"
+              >{#if app.browseKind === 'quick'}<MessageSquare
+                  size={17}
+                />{:else}<GitBranch size={17} />{/if}</span
+            ><span
               >{entry.node.title}<small>{entry.node.category || '未分类'}</small
               ></span
             ><ChevronRight size={14} /></button
           >{/each}
+        {#if !choices.length}<p class="field-help">
+            {app.browseKind === 'quick'
+              ? '尚无快捷话术，可在话术与流程中新增。'
+              : '尚无流程话术。'}
+          </p>{/if}
         <div class="list-note">
           <BookOpen size={17} />
-          <p>随客户的回答选择分支，合适的资料就在手边。</p>
+          <p>
+            {app.browseKind === 'quick'
+              ? '针对客户特定问题，找到对应回复并复制。'
+              : '随客户的回答选择分支，合适的资料就在手边。'}
+          </p>
         </div>
       </aside>{/if}
     <section class="conversation-panel">
       {#if node}
         <div class="conversation-top">
-          <span class="eyebrow">{node.category || '沟通话术'}</span>
+          <span class="eyebrow"
+            >{scriptKindName(node.kind)} · {node.category || '沟通话术'}</span
+          >
           <div class="inline-actions">
+            {#if node.kind !== 'quick'}<button
+                class="text-button"
+                onclick={() => (showFlow = !showFlow)}
+                ><GitBranch size={16} />{showFlow
+                  ? '收起完整流程'
+                  : '查看完整流程'}</button
+              >{/if}
             <span
               class:personal={app.current?.source === 'personal'}
               class="source-label"
@@ -174,22 +258,22 @@
             onclick={() => app.current && app.reset(app.current)}
             ><RotateCcw size={14} />恢复管理员版本</button
           >{/if}
-        <div class="next-step">
-          <div class="section-label">
-            {node.branches.length ? '客户怎么回答？' : '当前流程已到此处'}
-          </div>
-          {#if node.branches.length}<div class="branch-buttons">
-              {#each node.branches as branch}<button
-                  disabled={!app.nodes.some(
-                    (n) => n.node.id === branch.targetId,
-                  )}
-                  onclick={() => app.select(branch.targetId)}
-                  ><span>{branch.label}</span><ArrowRight size={17} /></button
-                >{/each}
-            </div>{:else}<p class="field-help">
-              你可以返回上一步，或搜索其他话术继续沟通。
-            </p>{/if}
-        </div>
+        {#if node.kind !== 'quick'}<div class="next-step">
+            <div class="section-label">
+              {node.branches.length ? '客户怎么回答？' : '当前流程已到此处'}
+            </div>
+            {#if node.branches.length}<div class="branch-buttons">
+                {#each node.branches as branch}<button
+                    disabled={!app.nodes.some(
+                      (n) => n.node.id === branch.targetId,
+                    )}
+                    onclick={() => app.select(branch.targetId)}
+                    ><span>{branch.label}</span><ArrowRight size={17} /></button
+                  >{/each}
+              </div>{:else}<p class="field-help">
+                你可以返回上一步，或搜索其他话术继续沟通。
+              </p>{/if}
+          </div>{/if}
         {#if app.compact}<details class="compact-materials">
             <summary
               ><BookOpen size={16} />关联素材 · {node.materialIds
@@ -204,7 +288,13 @@
                 /></button
               >{/each}
           </details>{/if}
-      {/if}
+      {:else}<div class="empty">
+          <MessageSquare size={32} />
+          <h3>
+            {app.browseKind === 'quick' ? '尚无快捷话术' : '尚无流程话术'}
+          </h3>
+          <p>可在“话术与流程”中添加，或搜索其他话术。</p>
+        </div>{/if}
     </section>
     {#if !app.compact}<aside class="related-panel">
         <div class="section-label">
@@ -229,7 +319,11 @@
             class="empty small"
           >
             <BookOpen size={27} />
-            <p>这一步还没有关联素材</p>
+            <p>
+              {node?.kind === 'quick'
+                ? '此话术还没有关联素材'
+                : '这一步还没有关联素材'}
+            </p>
             <button
               class="text-button"
               onclick={() => {

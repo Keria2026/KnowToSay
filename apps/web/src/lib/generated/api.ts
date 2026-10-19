@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/material-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_material_category"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/materials": {
         parameters: {
             query?: never;
@@ -142,6 +158,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["publish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scripts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["save_nodes"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -265,6 +297,9 @@ export interface components {
         CreateGroup: {
             name: string;
         };
+        CreateMaterialCategory: {
+            name: string;
+        };
         DesktopPreferences: {
             copyHides: boolean;
             /** Format: int64 */
@@ -274,6 +309,7 @@ export interface components {
         };
         DesktopStatus: {
             preferences: components["schemas"]["DesktopPreferences"];
+            searchMode: components["schemas"]["SearchPanelMode"];
             shortcutRegistered: boolean;
             warning?: string | null;
         };
@@ -300,6 +336,7 @@ export interface components {
             formatVersion: number;
             groupId: string;
             groupName: string;
+            materialCategories?: string[];
             materials: components["schemas"]["Material"][];
             nodes: components["schemas"]["ScriptNode"][];
             /** Format: int64 */
@@ -339,11 +376,17 @@ export interface components {
         };
         /** @enum {string} */
         Role: "admin" | "sales";
+        SaveScripts: {
+            nodes: components["schemas"]["ScriptNode"][];
+        };
+        /** @enum {string} */
+        ScriptKind: "flow" | "quick";
         ScriptNode: {
             branches: components["schemas"]["Branch"][];
             category: string;
             id: string;
             isEntry: boolean;
+            kind?: components["schemas"]["ScriptKind"];
             materialIds: string[];
             position?: null | components["schemas"]["Position"];
             question: string;
@@ -353,6 +396,8 @@ export interface components {
             title: string;
             variables: components["schemas"]["Variable"][];
         };
+        /** @enum {string} */
+        SearchPanelMode: "search" | "quick";
         SheetPage: {
             rows: components["schemas"]["SheetRow"][];
             /** Format: int32 */
@@ -366,6 +411,7 @@ export interface components {
         };
         Snapshot: {
             draftDirty: boolean;
+            materialCategories?: string[];
             materials: components["schemas"]["Material"][];
             nodes: components["schemas"]["NodeRecord"][];
             workspace?: null | components["schemas"]["Workspace"];
@@ -486,6 +532,29 @@ export interface operations {
             };
         };
     };
+    create_material_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMaterialCategory"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+        };
+    };
     save_material: {
         parameters: {
             query?: never;
@@ -594,6 +663,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Manifest"];
+                };
+            };
+        };
+    };
+    save_nodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveScripts"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
                 };
             };
         };

@@ -18,6 +18,10 @@ struct BackupData {
     official_nodes: Vec<ScriptNode>,
     draft_materials: Vec<Material>,
     official_materials: Vec<Material>,
+    #[serde(default)]
+    draft_material_categories: Vec<String>,
+    #[serde(default)]
+    official_material_categories: Vec<String>,
     releases: Vec<Manifest>,
 }
 
@@ -104,6 +108,8 @@ pub async fn backup(state: &AppState, requested: Option<String>) -> Result<FileR
         official_nodes: state.list("official_nodes").await?,
         draft_materials: state.list("draft_materials").await?,
         official_materials: state.list("official_materials").await?,
+        draft_material_categories: state.list("draft_material_categories").await?,
+        official_material_categories: state.list("official_material_categories").await?,
         releases: releases
             .into_iter()
             .map(|s| serde_json::from_str(&s))
@@ -236,8 +242,15 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
         version: workspace.version,
         nodes: data.official_nodes.clone(),
         materials: data.official_materials.clone(),
+        material_categories: data.official_material_categories.clone(),
     };
     let mut tx = state.pool.begin().await?;
+    sqlx::query("DELETE FROM draft_material_categories")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM official_material_categories")
+        .execute(&mut *tx)
+        .await?;
     for (table, entries) in [
         (
             "draft_nodes",
@@ -277,6 +290,23 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
                 .bind(json)
                 .execute(&mut *tx)
                 .await?;
+        }
+    }
+    for (table, categories) in [
+        ("draft_material_categories", &data.draft_material_categories),
+        (
+            "official_material_categories",
+            &data.official_material_categories,
+        ),
+    ] {
+        for name in categories {
+            sqlx::query(&format!(
+                "INSERT OR IGNORE INTO {table}(id,json) VALUES(?,?)"
+            ))
+            .bind(name)
+            .bind(serde_json::to_string(name)?)
+            .execute(&mut *tx)
+            .await?;
         }
     }
     sqlx::query("INSERT OR REPLACE INTO releases(version,json) VALUES(?,?)")

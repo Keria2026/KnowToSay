@@ -112,6 +112,36 @@
         }
       }
     },
+    "/api/v1/material-categories": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "create_material_category",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMaterialCategory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/materials": {
       "post": {
         "tags": [
@@ -262,6 +292,36 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Manifest"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scripts": {
+      "put": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "save_nodes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveScripts"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
                 }
               }
             }
@@ -504,6 +564,17 @@
           }
         }
       },
+      "CreateMaterialCategory": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "DesktopPreferences": {
         "type": "object",
         "required": [
@@ -536,11 +607,15 @@
         "type": "object",
         "required": [
           "preferences",
-          "shortcutRegistered"
+          "shortcutRegistered",
+          "searchMode"
         ],
         "properties": {
           "preferences": {
             "$ref": "#/components/schemas/DesktopPreferences"
+          },
+          "searchMode": {
+            "$ref": "#/components/schemas/SearchPanelMode"
           },
           "shortcutRegistered": {
             "type": "boolean"
@@ -640,6 +715,12 @@
           },
           "groupName": {
             "type": "string"
+          },
+          "materialCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "materials": {
             "type": "array",
@@ -798,6 +879,27 @@
           "sales"
         ]
       },
+      "SaveScripts": {
+        "type": "object",
+        "required": [
+          "nodes"
+        ],
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScriptNode"
+            }
+          }
+        }
+      },
+      "ScriptKind": {
+        "type": "string",
+        "enum": [
+          "flow",
+          "quick"
+        ]
+      },
       "ScriptNode": {
         "type": "object",
         "required": [
@@ -826,6 +928,9 @@
           },
           "isEntry": {
             "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ScriptKind"
           },
           "materialIds": {
             "type": "array",
@@ -865,6 +970,13 @@
             }
           }
         }
+      },
+      "SearchPanelMode": {
+        "type": "string",
+        "enum": [
+          "search",
+          "quick"
+        ]
       },
       "SheetPage": {
         "type": "object",
@@ -920,6 +1032,12 @@
         "properties": {
           "draftDirty": {
             "type": "boolean"
+          },
+          "materialCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "materials": {
             "type": "array",

@@ -102,6 +102,7 @@ impl AppState {
                 workspace: None,
                 nodes: vec![],
                 materials: vec![],
+                material_categories: vec![],
                 draft_dirty: false,
             });
         };
@@ -124,15 +125,20 @@ impl AppState {
                 );
             }
         }
-        let (nodes, mut materials, dirty) = if workspace.role == Role::Admin {
+        let official_categories = self.list::<String>("official_material_categories").await?;
+        let (nodes, mut materials, material_categories, dirty) = if workspace.role == Role::Admin {
             let n = self.list::<ScriptNode>("draft_nodes").await?;
             let m = self.list::<Material>("draft_materials").await?;
-            let dirty = n != official || m != self.list::<Material>("official_materials").await?;
-            (n, m, dirty)
+            let categories = self.list::<String>("draft_material_categories").await?;
+            let dirty = n != official
+                || m != self.list::<Material>("official_materials").await?
+                || categories != official_categories;
+            (n, m, categories, dirty)
         } else {
             (
                 official,
                 self.list::<Material>("official_materials").await?,
+                official_categories,
                 false,
             )
         };
@@ -170,42 +176,130 @@ impl AppState {
             workspace: Some(workspace),
             nodes: map.into_values().collect(),
             materials,
+            material_categories,
             draft_dirty: dirty,
         })
     }
+    pub async fn create_material_category(&self, name: &str) -> Result<()> {
+        let _guard = self.write.lock().await;
+        self.admin().await?;
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 80 || name.chars().any(char::is_control) {
+            return Err(Error::invalid(
+                "分类名称需为 1–80 个字符，且不能包含换行或控制字符",
+            ));
+        }
+        if name == "未分类" {
+            return Err(Error::conflict("此分类已存在"));
+        }
+        let result = sqlx::query(
+            "INSERT INTO draft_material_categories(id,json) VALUES(?,?) ON CONFLICT(id) DO NOTHING",
+        )
+        .bind(name)
+        .bind(serde_json::to_string(name)?)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(Error::conflict("此分类已存在"));
+        }
+        Ok(())
+    }
     pub async fn save_node(&self, node: ScriptNode) -> Result<()> {
-        validate_node(&node)?;
+        self.save_nodes(vec![node]).await
+    }
+    pub async fn save_nodes(&self, nodes: Vec<ScriptNode>) -> Result<()> {
+        if nodes.is_empty() || nodes.len() > 100_000 {
+            return Err(Error::invalid("请选择需要保存的话术，单次最多 100000 条"));
+        }
+        let mut ids = BTreeSet::new();
+        for node in &nodes {
+            validate_node(node)?;
+            if !ids.insert(&node.id) {
+                return Err(Error::invalid("同一次保存不能包含重复的话术标识"));
+            }
+        }
         let _guard = self.write.lock().await;
         let w = self.required_workspace().await?;
-        if w.role == Role::Admin {
-            return self.put("draft_nodes", &node.id, &node).await;
+        let mut effective: BTreeMap<String, ScriptNode> = BTreeMap::new();
+        let tables = if w.role == Role::Admin {
+            vec!["draft_nodes"]
+        } else {
+            vec!["personal_dependencies", "official_nodes", "personal_nodes"]
+        };
+        for table in tables {
+            for n in self.list::<ScriptNode>(table).await? {
+                effective.insert(n.id.clone(), n);
+            }
         }
-        // Retain only official dependencies reachable from this personal node. New official
-        // versions still take precedence over retained copies, personal edits over both.
-        let official: BTreeMap<_, _> = self
-            .list::<ScriptNode>("official_nodes")
-            .await?
-            .into_iter()
-            .map(|n| (n.id.clone(), n))
+        let conversions: BTreeSet<_> = nodes
+            .iter()
+            .filter(|node| {
+                node.kind == ScriptKind::Quick
+                    && effective
+                        .get(&node.id)
+                        .is_none_or(|n| n.kind != ScriptKind::Quick)
+            })
+            .map(|node| node.id.clone())
             .collect();
-        let mut seen = BTreeSet::new();
-        let mut pending = vec![node.id.clone()];
-        pending.extend(node.branches.iter().map(|b| b.target_id.clone()));
-        let mut tx = self.pool.begin().await?;
-        while let Some(id) = pending.pop() {
-            if !seen.insert(id.clone()) {
-                continue;
-            }
-            if let Some(n) = official.get(&id) {
-                pending.extend(n.branches.iter().map(|b| b.target_id.clone()));
-                sqlx::query("INSERT OR IGNORE INTO personal_dependencies(id,json) VALUES(?,?)")
-                    .bind(&id)
-                    .bind(serde_json::to_string(n)?)
-                    .execute(&mut *tx)
-                    .await?;
+        for node in &nodes {
+            effective.insert(node.id.clone(), node.clone());
+        }
+        if effective.values().any(|n| {
+            n.branches
+                .iter()
+                .any(|b| conversions.contains(&b.target_id))
+        }) {
+            return Err(Error::invalid("此话术仍被流程引用，请先移除指向它的连接"));
+        }
+        for node in &nodes {
+            if node.branches.iter().any(|b| {
+                effective
+                    .get(&b.target_id)
+                    .is_some_and(|n| n.kind == ScriptKind::Quick)
+            }) {
+                return Err(Error::invalid("流程分支只能连接流程话术，请选择其他下一步"));
             }
         }
-        sqlx::query("INSERT INTO personal_nodes(id,json) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json").bind(&node.id).bind(serde_json::to_string(&node)?).execute(&mut *tx).await?;
+        let mut tx = self.pool.begin().await?;
+        if w.role == Role::Sales {
+            // Keep official dependencies of all changed nodes in the same transaction.
+            let official: BTreeMap<_, _> = self
+                .list::<ScriptNode>("official_nodes")
+                .await?
+                .into_iter()
+                .map(|n| (n.id.clone(), n))
+                .collect();
+            let mut seen = BTreeSet::new();
+            let mut pending: Vec<_> = nodes
+                .iter()
+                .flat_map(|n| {
+                    std::iter::once(n.id.clone())
+                        .chain(n.branches.iter().map(|b| b.target_id.clone()))
+                })
+                .collect();
+            while let Some(id) = pending.pop() {
+                if !seen.insert(id.clone()) {
+                    continue;
+                }
+                if let Some(n) = official.get(&id) {
+                    pending.extend(n.branches.iter().map(|b| b.target_id.clone()));
+                    sqlx::query("INSERT OR IGNORE INTO personal_dependencies(id,json) VALUES(?,?)")
+                        .bind(&id)
+                        .bind(serde_json::to_string(n)?)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+        }
+        let table = if w.role == Role::Admin {
+            "draft_nodes"
+        } else {
+            "personal_nodes"
+        };
+        for node in &nodes {
+            sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json"))
+                .bind(&node.id).bind(serde_json::to_string(node)?).execute(&mut *tx).await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -270,6 +364,7 @@ impl AppState {
             version: workspace.version,
             nodes,
             materials,
+            material_categories: self.list("draft_material_categories").await?,
         };
         let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM official_nodes")
@@ -281,6 +376,14 @@ impl AppState {
         sqlx::query("DELETE FROM official_materials")
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM official_material_categories")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO official_material_categories SELECT * FROM draft_material_categories",
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("INSERT INTO official_materials SELECT * FROM draft_materials")
             .execute(&mut *tx)
             .await?;
@@ -325,6 +428,16 @@ impl AppState {
         sqlx::query("DELETE FROM official_materials")
             .execute(&mut *tx)
             .await?;
+        sqlx::query("DELETE FROM official_material_categories")
+            .execute(&mut *tx)
+            .await?;
+        for name in &manifest.material_categories {
+            sqlx::query("INSERT OR IGNORE INTO official_material_categories(id,json) VALUES(?,?)")
+                .bind(name)
+                .bind(serde_json::to_string(name)?)
+                .execute(&mut *tx)
+                .await?;
+        }
         for n in &manifest.nodes {
             sqlx::query("INSERT INTO official_nodes(id,json) VALUES(?,?)")
                 .bind(&n.id)
@@ -352,7 +465,9 @@ fn checked_table(table: &str) -> Result<&str> {
         | "personal_nodes"
         | "personal_dependencies"
         | "official_materials"
-        | "draft_materials" => Ok(table),
+        | "draft_materials"
+        | "draft_material_categories"
+        | "official_material_categories" => Ok(table),
         _ => Err(Error::invalid("未知数据表")),
     }
 }
@@ -362,6 +477,11 @@ pub fn validate_node(n: &ScriptNode) -> Result<()> {
     }
     if n.replies.len() > 50 || n.branches.len() > 200 || n.variables.len() > 100 {
         return Err(Error::invalid("话术内容超过限制"));
+    }
+    if n.kind == ScriptKind::Quick && (n.is_entry || !n.branches.is_empty()) {
+        return Err(Error::invalid(
+            "快捷话术不参与流程，请先取消流程入口并移除分支",
+        ));
     }
     if n.position
         .as_ref()
@@ -377,7 +497,24 @@ pub fn validate_node(n: &ScriptNode) -> Result<()> {
     }
     Ok(())
 }
+pub fn validate_script_kinds(nodes: &[ScriptNode]) -> Result<()> {
+    let quick: BTreeSet<_> = nodes
+        .iter()
+        .filter(|n| n.kind == ScriptKind::Quick)
+        .map(|n| &n.id)
+        .collect();
+    for n in nodes {
+        if n.branches.iter().any(|b| quick.contains(&b.target_id)) {
+            return Err(Error::invalid(format!(
+                "话术「{}」仍连接到快捷话术，请先移除该流程连接",
+                n.title
+            )));
+        }
+    }
+    Ok(())
+}
 pub fn validate_manifest_content(nodes: &[ScriptNode], materials: &[Material]) -> Result<()> {
+    validate_script_kinds(nodes)?;
     if nodes.len() > 100_000 || materials.len() > 100_000 {
         return Err(Error::invalid("资料数量超过限制"));
     }

@@ -1,6 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { api, native, copyText } from './api';
-import type { Snapshot, ScriptNode, NodeRecord, SyncStatus } from '$lib/types';
+import type {
+  Snapshot,
+  ScriptNode,
+  ScriptKind,
+  NodeRecord,
+  SyncStatus,
+} from '$lib/types';
 
 class WorkspaceStore {
   data = $state<Snapshot | null>(null);
@@ -18,6 +24,8 @@ class WorkspaceStore {
   compact = $state(false);
   progress = $state<SyncStatus | null>(null);
   editorId = $state('');
+  editorKind = $state<ScriptKind>('flow');
+  browseKind = $state<ScriptKind>('flow');
   editorDirty = $state(false);
   freshNode = $state<ScriptNode | null>(null);
   nodes = $derived(this.data?.nodes ?? []);
@@ -41,11 +49,15 @@ class WorkspaceStore {
     if (
       !this.selectedId ||
       !data.nodes.some((n) => n.node.id === this.selectedId)
-    )
+    ) {
       this.selectedId =
         data.nodes.find((n) => n.node.isEntry)?.node.id ||
         data.nodes[0]?.node.id ||
         '';
+      this.browseKind =
+        data.nodes.find((n) => n.node.id === this.selectedId)?.node.kind ??
+        'flow';
+    }
   }
   async start() {
     try {
@@ -85,7 +97,8 @@ class WorkspaceStore {
   }
   navigate(nav: string) {
     if (this.editorDirty && this.nav === 'scripts') {
-      if (!confirm('当前话术尚未保存，放弃修改并离开？')) return false;
+      if (!confirm('当前话术与流程尚未保存，放弃全部修改并离开？'))
+        return false;
       this.editorDirty = false;
       this.freshNode = null;
       this.editorId = '';
@@ -96,10 +109,13 @@ class WorkspaceStore {
   }
   select(id: string, reset = false) {
     if (this.nav === 'scripts' && !this.navigate('workbench')) return;
-    if (reset) this.history = [];
+    const kind = this.nodes.find((r) => r.node.id === id)?.node.kind ?? 'flow';
+    if (reset || kind === 'quick' || kind !== this.browseKind)
+      this.history = [];
     else if (this.selectedId && this.selectedId !== id)
       this.history = [...this.history, this.selectedId];
     this.selectedId = id;
+    this.browseKind = kind;
     this.query = '';
     this.nav = 'workbench';
   }
@@ -110,25 +126,8 @@ class WorkspaceStore {
       this.history = this.history.slice(0, -1);
     }
   }
-  async save(node: ScriptNode) {
-    return this.task(
-      '保存话术',
-      async () => {
-        this.data = await api<Snapshot>(
-          `/scripts/${encodeURIComponent(node.id)}`,
-          'PUT',
-          node,
-        );
-        this.editorId = node.id;
-        this.freshNode = null;
-        this.selectedId = node.id;
-      },
-      this.admin
-        ? '已保存为管理员草稿，发布后业务员才会收到'
-        : '已保存个人版本，管理员更新不会覆盖此修改',
-    );
-  }
   edit(record?: NodeRecord) {
+    this.editorKind = (record || this.current)?.node.kind ?? 'flow';
     this.editorId = record?.node.id || this.current?.node.id || '';
     this.freshNode = null;
     this.nav = 'scripts';

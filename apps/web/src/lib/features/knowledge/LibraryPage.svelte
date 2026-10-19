@@ -13,6 +13,7 @@
     ArrowRight,
     Download,
     Check,
+    FolderPlus,
   } from 'lucide-svelte';
   import { app } from '../workspace/store.svelte';
   import {
@@ -23,8 +24,10 @@
   } from '../workspace/api';
   import { kindName, bytes } from '$lib/utils/scripts';
   import type { Material, Snapshot, ScriptNode } from '$lib/types';
+  import CategoryDialog from './CategoryDialog.svelte';
   let kind = $state('all');
-  let category = $state('all');
+  let category = $state<string | null>(null);
+  let showCategoryDialog = $state(false);
   let fileInput = $state<HTMLInputElement>();
   let editDialog: HTMLDialogElement;
   let importDialog: HTMLDialogElement;
@@ -38,17 +41,19 @@
     app.materials.filter(
       (m) =>
         (kind === 'all' || m.kind === kind) &&
-        (category === 'all' || m.category === category),
+        (category === null || (m.category.trim() || '未分类') === category),
     ),
   );
   let categories = $derived([
-    ...new Set(app.materials.map((m) => m.category || '未分类')),
+    '未分类',
+    ...(app.data?.materialCategories || []),
   ]);
   const fields: [string, string][] = [
     ['id', '唯一 ID（必填）'],
     ['title', '题目（必填）'],
     ['question', '问题 / 说明'],
     ['category', '分类'],
+    ['kind', '话术类型（flow / quick）'],
     ['isEntry', '流程入口'],
     ['reply:zh-CN', '中文回复'],
     ['reply:ko', '韩语回复'],
@@ -62,11 +67,23 @@
       type
     ] || FileText;
   async function importFiles(files?: FileList | null) {
+    const targetCategory = category;
     await app.task(
       '正在导入文件',
       async () => {
-        if (native()) await selectNativeFiles();
-        else if (files?.length) await uploadFiles(files);
+        const imported = native()
+          ? await selectNativeFiles()
+          : files?.length
+            ? await uploadFiles(files)
+            : [];
+        if (targetCategory !== null) {
+          for (const material of imported) {
+            await api('/materials', 'POST', {
+              ...material,
+              category: targetCategory,
+            });
+          }
+        }
         await app.refresh();
       },
       '文件已导入到管理员草稿',
@@ -80,7 +97,7 @@
           id: '',
           name: '',
           kind: 'text',
-          category: '未分类',
+          category: category ?? '未分类',
           tags: [],
           notes: '',
           text: '',
@@ -164,6 +181,11 @@
       <p class="muted">把每份资料，放在需要它的地方。</p>
     </div>
     {#if app.admin}<div class="button-row">
+        <button
+          class="button secondary"
+          onclick={() => (showCategoryDialog = true)}
+          ><FolderPlus size={16} />新建分类</button
+        >
         <button class="button secondary" onclick={() => edit()}
           ><Plus size={16} />文字素材</button
         ><button
@@ -189,7 +211,7 @@
         >{/each}
     </div>
     <select bind:value={category} aria-label="筛选分类"
-      ><option value="all">全部分类</option>{#each categories as value}<option
+      ><option value={null}>全部分类</option>{#each categories as value}<option
           {value}>{value}</option
         >{/each}</select
     >
@@ -249,7 +271,7 @@
   </div>
   {#if !visible.length}<div class="empty">
       <FileText size={38} />
-      <h3>这里还没有素材</h3>
+      <h3>{category === null ? '这里还没有素材' : '此分类还没有素材'}</h3>
       <p>
         {app.admin
           ? '导入图片、视频、Excel 或创建文字素材。'
@@ -278,7 +300,14 @@
       }}
     >
       <label>名称<input bind:value={editing.name} required /></label><label
-        >分类<input bind:value={editing.category} /></label
+        >分类<input
+          bind:value={editing.category}
+          list="material-categories"
+          maxlength="80"
+        />
+        <datalist id="material-categories"
+          >{#each categories as value}<option {value}></option>{/each}</datalist
+        ></label
       ><label>标签（逗号分隔）<input bind:value={tags} /></label><label
         >备注<textarea bind:value={editing.notes} rows="2"></textarea></label
       >{#if editing.kind === 'text'}<label
@@ -288,6 +317,14 @@
       >
     </form>{/if}
 </dialog>
+
+{#if showCategoryDialog}<CategoryDialog
+    onclose={() => (showCategoryDialog = false)}
+    oncreate={(name) => {
+      category = name;
+      kind = 'all';
+    }}
+  />{/if}
 
 <dialog bind:this={importDialog} class="import-dialog">
   <header class="dialog-header">

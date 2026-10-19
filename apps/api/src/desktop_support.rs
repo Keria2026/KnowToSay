@@ -1,6 +1,6 @@
 use knowtosay::{
     db::AppState,
-    models::{DesktopPreferences, DesktopStatus},
+    models::{DesktopPreferences, DesktopStatus, SearchPanelMode},
 };
 use std::sync::{
     Mutex,
@@ -14,6 +14,7 @@ pub struct DesktopController {
     pub shortcut_registered: AtomicBool,
     pub warning: Mutex<Option<String>>,
     pub previous_window: AtomicIsize,
+    pub search_mode: Mutex<SearchPanelMode>,
 }
 
 pub fn show_main(app: &tauri::AppHandle) {
@@ -25,10 +26,38 @@ pub fn show_main(app: &tauri::AppHandle) {
 }
 
 pub fn show_search(app: &tauri::AppHandle) {
+    show_panel(app, SearchPanelMode::Search)
+}
+
+pub fn show_quick_replies(app: &tauri::AppHandle) {
+    show_panel(app, SearchPanelMode::Quick)
+}
+
+pub fn toggle_search(app: &tauri::AppHandle) {
+    let quick = app.try_state::<DesktopController>().is_some_and(|c| {
+        c.search_mode
+            .lock()
+            .is_ok_and(|m| *m == SearchPanelMode::Quick)
+    });
+    if !quick
+        && app
+            .get_webview_window("search")
+            .is_some_and(|w| w.is_visible().unwrap_or(false))
+    {
+        hide_search(app);
+    } else {
+        show_search(app);
+    }
+}
+
+fn show_panel(app: &tauri::AppHandle, mode: SearchPanelMode) {
     let Some(window) = app.get_webview_window("search") else {
         return;
     };
     if let Some(control) = app.try_state::<DesktopController>() {
+        if let Ok(mut current) = control.search_mode.lock() {
+            *current = mode;
+        }
         #[cfg(windows)]
         {
             // Store the previous foreground HWND as an integer across the UI thread boundary.
@@ -42,7 +71,14 @@ pub fn show_search(app: &tauri::AppHandle) {
         #[cfg(not(windows))]
         let _ = &control;
     }
-    let _ = window.set_size(tauri::LogicalSize::new(720.0, 100.0));
+    let _ = window.set_size(tauri::LogicalSize::new(
+        720.0,
+        if mode == SearchPanelMode::Quick {
+            560.0
+        } else {
+            140.0
+        },
+    ));
     #[cfg(windows)]
     if let Some(rect) = cursor_monitor() {
         let width = window.outer_size().map_or(720, |s| s.width) as i32;
@@ -55,7 +91,7 @@ pub fn show_search(app: &tauri::AppHandle) {
     let _ = window.center();
     let _ = window.show();
     let _ = window.set_focus();
-    let _ = window.emit("quick-search-open", ());
+    let _ = window.emit("quick-search-open", mode);
 }
 
 pub fn hide_search(app: &tauri::AppHandle) {
@@ -82,6 +118,10 @@ pub fn open_search(app: tauri::AppHandle) {
     show_search(&app)
 }
 #[tauri::command]
+pub fn open_quick_replies(app: tauri::AppHandle) {
+    show_quick_replies(&app)
+}
+#[tauri::command]
 pub fn close_search(app: tauri::AppHandle) {
     hide_search(&app)
 }
@@ -91,7 +131,7 @@ pub fn resize_search(app: tauri::AppHandle, expanded: bool) -> Result<(), String
     window
         .set_size(tauri::LogicalSize::new(
             720.0,
-            if expanded { 560.0 } else { 100.0 },
+            if expanded { 560.0 } else { 140.0 },
         ))
         .map_err(|e| e.to_string())
 }
@@ -112,6 +152,7 @@ pub fn desktop_status(app: tauri::AppHandle) -> Result<DesktopStatus, String> {
             .clone(),
         shortcut_registered: control.shortcut_registered.load(Ordering::Relaxed),
         warning: control.warning.lock().map_err(|e| e.to_string())?.clone(),
+        search_mode: *control.search_mode.lock().map_err(|e| e.to_string())?,
     })
 }
 #[tauri::command]
@@ -186,11 +227,12 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ),
         warning: Mutex::new(warning),
         previous_window: AtomicIsize::new(0),
+        search_mode: Mutex::new(SearchPanelMode::Search),
     });
     WebviewWindowBuilder::new(
         app,
         "search",
-        WebviewUrl::App("index.html?quickSearch=1".into()),
+        WebviewUrl::App(knowtosay::desktop_behavior::QUICK_SEARCH_PATH.into()),
     )
     .title("KnowToSay 搜索")
     .decorations(false)
@@ -198,7 +240,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     .always_on_top(true)
     .skip_taskbar(true)
     .visible(false)
-    .inner_size(720., 100.)
+    .inner_size(720., 140.)
     .min_inner_size(340., 90.)
     .build()?;
     use tauri::{
@@ -353,7 +395,7 @@ fn start_edge_watcher(app: tauri::AppHandle) {
             }
             if !fired && since.elapsed().as_millis() >= preferences.dwell_ms as u128 {
                 fired = true;
-                show_search(&app);
+                show_quick_replies(&app);
             }
         }
     });

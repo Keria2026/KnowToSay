@@ -48,12 +48,28 @@ pub struct ScriptNode {
     pub title: String,
     pub question: String,
     pub category: String,
+    #[serde(default)]
+    pub kind: ScriptKind,
     pub is_entry: bool,
     pub replies: BTreeMap<String, String>,
     pub variables: Vec<Variable>,
     pub branches: Vec<Branch>,
     pub material_ids: Vec<String>,
     pub position: Option<Position>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ToSchema, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ScriptKind {
+    #[default]
+    Flow,
+    Quick,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveScripts {
+    pub nodes: Vec<ScriptNode>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq)]
@@ -108,6 +124,8 @@ pub struct Snapshot {
     pub workspace: Option<Workspace>,
     pub nodes: Vec<NodeRecord>,
     pub materials: Vec<Material>,
+    #[serde(default)]
+    pub material_categories: Vec<String>,
     pub draft_dirty: bool,
 }
 
@@ -120,6 +138,14 @@ pub struct Manifest {
     pub version: i64,
     pub nodes: Vec<ScriptNode>,
     pub materials: Vec<Material>,
+    #[serde(default)]
+    pub material_categories: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateMaterialCategory {
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -217,4 +243,13 @@ pub struct DesktopStatus {
     pub preferences: DesktopPreferences,
     pub shortcut_registered: bool,
     pub warning: Option<String>,
+    pub search_mode: SearchPanelMode,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, ToSchema, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchPanelMode {
+    #[default]
+    Search,
+    Quick,
 }

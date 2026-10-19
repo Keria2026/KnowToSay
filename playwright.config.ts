@@ -9,6 +9,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:1421',
     viewport: { width: 1440, height: 1000 },
+    actionTimeout: 10_000,
     permissions: ['clipboard-read', 'clipboard-write'],
     launchOptions: {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
@@ -18,6 +19,12 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: [
+    {
+      command: 'bun run --cwd apps/web preview --port 1423',
+      url: 'http://127.0.0.1:1423',
+      env: { KNOWTOSAY_API_PORT: '4175' },
+      timeout: 60_000,
+    },
     {
       command: `cargo run -p knowtosay --bin knowtosay-api -- --data-dir .local/e2e-${randomUUID()} --port 4175 --no-lan`,
       url: 'http://127.0.0.1:4175/api/v1/snapshot',

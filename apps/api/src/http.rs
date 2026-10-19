@@ -30,9 +30,14 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/group/discover", get(discover))
         .route("/api/v1/group/address", put(update_address))
         .route("/api/v1/scripts/{id}", put(save_node).delete(delete_node))
+        .route("/api/v1/scripts", put(save_nodes))
         .route("/api/v1/scripts/{id}/reset", post(reset_node))
         .route("/api/v1/scripts/import", post(import_scripts))
         .route("/api/v1/materials", post(save_material))
+        .route(
+            "/api/v1/material-categories",
+            post(create_material_category),
+        )
         .route("/api/v1/materials/{id}", delete(delete_material))
         .route("/api/v1/materials/{id}/file", get(material_file))
         .route("/api/v1/materials/{id}/rows", get(material_rows))
@@ -202,6 +207,15 @@ pub async fn save_node(
     Ok(Json(state.snapshot().await?))
 }
 
+#[utoipa::path(put,path="/api/v1/scripts",request_body=SaveScripts,responses((status=200,body=Snapshot)))]
+pub async fn save_nodes(
+    State(state): State<AppState>,
+    Json(input): Json<SaveScripts>,
+) -> Result<Json<Snapshot>> {
+    state.save_nodes(input.nodes).await?;
+    Ok(Json(state.snapshot().await?))
+}
+
 pub async fn delete_node(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -279,6 +293,14 @@ pub async fn import_scripts(
         .find(|m| m.id == input.material_id)
         .ok_or_else(|| Error::missing("请选择已导入的 Excel 素材"))?;
     let nodes = files::scripts_from_rows(&m.rows, &input.mapping)?;
+    let mut effective: BTreeMap<_, _> = state
+        .list::<ScriptNode>("draft_nodes")
+        .await?
+        .into_iter()
+        .map(|n| (n.id.clone(), n))
+        .collect();
+    effective.extend(nodes.iter().cloned().map(|n| (n.id.clone(), n)));
+    crate::db::validate_script_kinds(&effective.into_values().collect::<Vec<_>>())?;
     if !input.preview {
         let mut tx = state.pool.begin().await?;
         for node in &nodes {
@@ -320,6 +342,15 @@ pub async fn save_material(
         .put("draft_materials", &material.id, &material)
         .await?;
     drop(_guard);
+    Ok(Json(state.snapshot().await?))
+}
+
+#[utoipa::path(post,path="/api/v1/material-categories",request_body=CreateMaterialCategory,responses((status=200,body=Snapshot)))]
+pub async fn create_material_category(
+    State(state): State<AppState>,
+    Json(input): Json<CreateMaterialCategory>,
+) -> Result<Json<Snapshot>> {
+    state.create_material_category(&input.name).await?;
     Ok(Json(state.snapshot().await?))
 }
 
@@ -549,6 +580,7 @@ pub async fn demo(State(state): State<AppState>) -> Result<Json<Snapshot>> {
             title: title.into(),
             question: question.into(),
             category: "销售入门（示例）".into(),
+            kind: ScriptKind::Flow,
             is_entry: id == "demo-start",
             replies: BTreeMap::from([("zh-CN".into(), zh.into()), ("ko".into(), ko.into())]),
             variables,

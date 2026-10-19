@@ -51,6 +51,7 @@ Rust 开发接口默认只监听本机 TCP 4174，前端通过 Vite 代理访问
 - 下载客户端内的标准 Excel 模板，或使用 `apps/web/static/script-template.xlsx`；该文件由 `scripts/generate-excel-template.py` 生成。
 - 导入已有 Excel 时映射字段。稳定 `id` 与 `title` 必需，同一 ID 重复导入更新草稿而不是创建重复话术。
 - 多语言列为 `reply:ko`、`reply:zh-CN` 等；变量、分支和素材 ID 列可用 JSON 数组，也可导入后在编辑器补充。
+- `kind` 列区分 `flow`（流程话术）和 `quick`（快捷话术），也接受中文类型名。未映射或留空时按流程话术导入；快捷话术不能设置入口、分支或作为流程连接目标。标准模板包含此列，已有资料不按分支数量自动重新分类。
 - Excel 当前支持 XLSX、XLS、XLSB、ODS；单个工作簿最多索引 100,000 个非空行，发布清单最多 64MB。实际业务文件需预先验证格式与容量。
 - 图片与视频按需预览；具体编解码器受 Windows/WebView2 支持范围影响。无法预览时导出原文件使用本机软件。
 - 素材内容按 SHA-256 去重保存。被移除素材不能通过当前界面或发布下载接口继续访问；旧文件为回滚和备份保留，自动空间回收策略尚未启用。
@@ -68,16 +69,16 @@ cargo test --workspace --locked
 bun run contract
 ```
 
-浏览器端到端测试使用独立的随机测试目录与端口 4175、1421，不接触日常资料库：
+浏览器端到端测试使用独立的随机测试目录，接口端口 4175、开发前端 1421、生产预览 1423，不接触日常资料库：
 
 ```sh
 bun x playwright install chromium
 bun run test:e2e
 ```
 
-云环境已有 Chromium 时可以指定 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium`。测试执行建组、变量校验与复制、分支汇合、悬浮布局切换、Excel 映射导入、单元格搜索、发布、重启持久化和独立搜索栏；截图与失败 trace 保存在忽略的 `test-results/`。
+云环境已有 Chromium 时可以指定 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium`。`test:e2e` 先生成生产静态构建，再执行建组、变量校验与复制、分支汇合、悬浮布局切换、Excel 映射导入、独立快捷话术编辑、单元格搜索、发布和重启持久化。独立窗口使用生产预览根路由验证快捷回复表、直接复制、全库搜索和返回工作台，防止打包路径再次出现 404。截图与失败 trace 保存在忽略的 `test-results/`。
 
-后端测试通过真实 SQLite 和回环 HTTP 服务覆盖草稿隔离、角色边界、个人分支更新保护、素材删除、Range 续传、SHA-256 失败不切换、备份恢复、资料包和 Excel 超出预览范围的搜索。屏幕边缘逻辑另测禁用边缘、角落及负坐标显示器；这些不能证明 Windows 桌面消息和真实鼠标唤出已验证。
+后端测试通过真实 SQLite 和回环 HTTP 服务覆盖草稿隔离、角色边界、流程与快捷话术类型校验、个人分支更新保护、素材删除、Range 续传、SHA-256 失败不切换、备份恢复、资料包和 Excel 超出预览范围的搜索。批量流程保存测试通过数据库触发器制造第二次写入失败，验证首个节点修改也回滚；并验证个人排版、分支和新节点在同步与重启后保留。浏览器测试实际拖动节点、拉箭头到已有节点与空白处、修改分支、保存后重载、在工作台打开完整图和点击步骤，同时检查各搜索入口的中韩双语展示及发送语言复制。屏幕边缘逻辑另测禁用边缘、角落及负坐标显示器；根路由解析覆盖开发及两种 Tauri 协议。这些不能证明 Windows 桌面消息和真实鼠标唤出已验证。
 
 ## Windows 安装包
 
@@ -88,6 +89,8 @@ bun run desktop:build
 本地默认构建输出位于 `target/release/bundle/nsis/`。仓库工作流对 `dev`、`master` 推送及 PR 运行检查，并执行 `bun run desktop:build --target x86_64-pc-windows-msvc --bundles nsis --ci`，生成 Windows x64 NSIS 安装包。CI 输出位于 `target/x86_64-pc-windows-msvc/release/bundle/nsis/`，产物名为 `KnowToSay-Windows-installer`，保留 14 天；缺少 `.exe` 时任务必须失败。提交工作流不代表该次远端运行已经成功。
 
 Git 使用 `.gitattributes` 将文本文件统一检出为 LF，Prettier 同样检查 LF，避免 Windows 的 `core.autocrlf=true` 使所有前端文件在格式检查阶段失败。不得通过跳过格式检查来解决换行差异。
+
+Windows CI 在安装包构建前安装 Chromium 并执行上述浏览器回归；生产静态页面路由和快捷回复复制失败时不生成安装包。浏览器测试失败时将日志末尾写入工作流错误注解，并保存 `ui-tests.log`、截图和 trace 至 `KnowToSay-UI-test-diagnostics`，保留 7 天。首次页面加载允许 Windows 开发服务器冷启动所需的等待时间，其余交互断言保持默认超时。
 
 ## 交付前仍需目标环境验收
 

@@ -9,8 +9,10 @@ use utoipa::OpenApi;
         http::join_group,
         http::discover,
         http::save_node,
+        http::save_nodes,
         http::import_scripts,
         http::save_material,
+        http::create_material_category,
         http::publish,
         http::manifest,
         http::start_sync,
@@ -27,8 +29,11 @@ use utoipa::OpenApi;
         Branch,
         Position,
         ScriptNode,
+        ScriptKind,
+        SaveScripts,
         SheetRow,
         Material,
+        CreateMaterialCategory,
         MaterialSearchResult,
         SheetPage,
         NodeRecord,
@@ -44,7 +49,8 @@ use utoipa::OpenApi;
         ApiError,
         http::ImportScripts,
         DesktopPreferences,
-        DesktopStatus
+        DesktopStatus,
+        SearchPanelMode
     ))
 )]
 pub struct ApiDoc;
