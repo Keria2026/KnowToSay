@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/v1/backup/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["import_backup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/flows/{id}": {
         parameters: {
             query?: never;
@@ -191,6 +207,22 @@ export interface paths {
         put?: never;
         post: operations["create_quick_category"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quick-categories/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["rename_quick_category"];
+        post?: never;
+        delete: operations["delete_quick_category"];
         options?: never;
         head?: never;
         patch?: never;
@@ -455,6 +487,7 @@ export interface components {
         Snapshot: {
             draftDirty: boolean;
             flows: components["schemas"]["Flow"][];
+            manageableQuickCategories?: string[];
             materialCategories?: string[];
             materials: components["schemas"]["Material"][];
             nodes: components["schemas"]["NodeRecord"][];
@@ -493,6 +526,29 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    import_backup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+        };
+    };
     save_flow: {
         parameters: {
             query?: never;
@@ -749,6 +805,52 @@ export interface operations {
                 "application/json": components["schemas"]["CreateQuickCategory"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+        };
+    };
+    rename_quick_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateQuickCategory"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+        };
+    };
+    delete_quick_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

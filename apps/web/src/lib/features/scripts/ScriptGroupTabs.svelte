@@ -7,6 +7,7 @@
     ListOrdered,
     ArrowUp,
     ArrowDown,
+    Trash2,
   } from 'lucide-svelte';
   import { orderGroups } from './order';
   import { app } from '../workspace/store.svelte';
@@ -17,6 +18,7 @@
     onselect,
     onorder,
     onsave,
+    onremove,
     noun = '流程',
     label = '流程切换',
     editable = false,
@@ -28,6 +30,7 @@
     onselect: (id: string) => void;
     onorder: (ids: string[]) => boolean;
     onsave?: (id: string, name: string) => Promise<string | undefined>;
+    onremove?: (id: string) => Promise<void>;
     noun?: string;
     label?: string;
     editable?: boolean;
@@ -198,6 +201,12 @@
           aria-label={`重命名当前${noun}`}
           onclick={() => open(items.find((f) => f.id === selectedId))}
           ><Pencil size={16} /></button
+        >{/if}
+      {#if renameable && onremove}<button
+          class="icon-button"
+          aria-label={`删除当前${noun}`}
+          disabled={!!app.busy}
+          onclick={() => onremove?.(selectedId)}><Trash2 size={16} /></button
         >{/if}
       <button class="text-button" disabled={!!app.busy} onclick={() => open()}
         ><Plus size={17} />新建{noun}</button

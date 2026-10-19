@@ -138,6 +138,8 @@ pub struct Snapshot {
     pub material_categories: Vec<String>,
     #[serde(default)]
     pub quick_categories: Vec<String>,
+    #[serde(default)]
+    pub manageable_quick_categories: Vec<String>,
     pub draft_dirty: bool,
 }
 

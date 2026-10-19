@@ -105,11 +105,26 @@ impl AppState {
                 materials: vec![],
                 material_categories: vec![],
                 quick_categories: vec![],
+                manageable_quick_categories: vec![],
                 draft_dirty: false,
             });
         };
         let flows = self.effective_flows(&workspace.role).await?;
         let quick_categories = self.quick_categories(&workspace.role).await?;
+        let manageable_quick_categories = if workspace.role == Role::Admin {
+            quick_categories.clone()
+        } else {
+            let official: BTreeSet<String> = self
+                .list::<String>("official_quick_categories")
+                .await?
+                .into_iter()
+                .collect();
+            self.list::<String>("personal_quick_categories")
+                .await?
+                .into_iter()
+                .filter(|name| !official.contains(name))
+                .collect()
+        };
         let official = self.list::<ScriptNode>("official_nodes").await?;
         let official_map: BTreeMap<_, _> = official
             .iter()
@@ -186,6 +201,7 @@ impl AppState {
             materials,
             material_categories,
             quick_categories,
+            manageable_quick_categories,
             draft_dirty: dirty,
         })
     }
@@ -249,6 +265,81 @@ impl AppState {
             "personal_quick_categories"
         };
         self.put(table, name, &name).await
+    }
+    pub async fn update_quick_category(&self, old: &str, name: Option<&str>) -> Result<()> {
+        let old = old.trim();
+        if old.is_empty() || old == "未分类" {
+            return Err(Error::invalid("未分类是默认分类，不能重命名或删除"));
+        }
+        let replacement = name.map(str::trim).unwrap_or("未分类");
+        if replacement.is_empty()
+            || replacement.chars().count() > 80
+            || replacement.chars().any(char::is_control)
+        {
+            return Err(Error::invalid(
+                "分类名称需为 1–80 个字符，且不能包含换行或控制字符",
+            ));
+        }
+        let _guard = self.write.lock().await;
+        let workspace = self.required_workspace().await?;
+        let (table, node_tables) = if workspace.role == Role::Admin {
+            ("draft_quick_categories", vec!["draft_nodes"])
+        } else {
+            if self
+                .list::<String>("official_quick_categories")
+                .await?
+                .iter()
+                .any(|n| n == old)
+            {
+                return Err(Error::denied());
+            }
+            (
+                "personal_quick_categories",
+                vec!["personal_nodes", "personal_dependencies"],
+            )
+        };
+        if !self.list::<String>(table).await?.iter().any(|n| n == old) {
+            return Err(Error::missing("分类不存在"));
+        }
+        if name.is_some() && old == replacement {
+            return Ok(());
+        }
+        if name.is_some()
+            && (replacement == "未分类"
+                || self
+                    .quick_categories(&workspace.role)
+                    .await?
+                    .iter()
+                    .any(|n| n == replacement))
+        {
+            return Err(Error::conflict("此分类已存在"));
+        }
+        let mut tx = self.pool.begin().await?;
+        if name.is_some() {
+            sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?)"))
+                .bind(replacement)
+                .bind(serde_json::to_string(replacement)?)
+                .execute(&mut *tx)
+                .await?;
+        }
+        for node_table in node_tables {
+            for mut node in self.list::<ScriptNode>(node_table).await? {
+                if node.kind == ScriptKind::Quick && node.category.trim() == old {
+                    node.category = replacement.into();
+                    sqlx::query(&format!("UPDATE {node_table} SET json=? WHERE id=?"))
+                        .bind(serde_json::to_string(&node)?)
+                        .bind(&node.id)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+        }
+        sqlx::query(&format!("DELETE FROM {table} WHERE id=?"))
+            .bind(old)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
     pub async fn effective_flows(&self, role: &Role) -> Result<Vec<Flow>> {
         let tables = if *role == Role::Admin {

@@ -1412,3 +1412,325 @@ async fn quick_category_migration_preserves_existing_node_names_in_all_scopes() 
         quick
     );
 }
+
+#[tokio::test]
+async fn quick_category_management_is_atomic_and_preserves_personal_overrides() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let mut quick = node("quick", "원래 답변");
+    quick.kind = ScriptKind::Quick;
+    quick.is_entry = false;
+    quick.flow_id = None;
+    quick.category = "原分类".into();
+    admin.save_node(quick.clone()).await.unwrap();
+    admin.create_quick_category("空分类").await.unwrap();
+    admin.publish().await.unwrap();
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sales
+        .apply(&admin.latest().await.unwrap(), "")
+        .await
+        .unwrap();
+    let mut personal = quick.clone();
+    personal.replies.insert("ko".into(), "내 답변".into());
+    sales.save_node(personal.clone()).await.unwrap();
+    assert!(
+        sales
+            .snapshot()
+            .await
+            .unwrap()
+            .manageable_quick_categories
+            .is_empty()
+    );
+    assert!(sales.update_quick_category("原分类", None).await.is_err());
+    admin
+        .update_quick_category("原分类", Some("新分类"))
+        .await
+        .unwrap();
+    assert_eq!(
+        admin.snapshot().await.unwrap().nodes[0].node.category,
+        "新分类"
+    );
+    assert_eq!(admin.latest().await.unwrap().nodes[0].category, "原分类");
+    assert!(
+        admin
+            .update_quick_category("空分类", Some("新分类"))
+            .await
+            .is_err()
+    );
+    assert!(admin.update_quick_category("未分类", None).await.is_err());
+    admin
+        .update_quick_category("空分类", Some("空分类改名"))
+        .await
+        .unwrap();
+    admin
+        .update_quick_category("空分类改名", None)
+        .await
+        .unwrap();
+    let before = serde_json::to_value(admin.snapshot().await.unwrap()).unwrap();
+    sqlx::query("CREATE TRIGGER reject_category_update BEFORE UPDATE ON draft_nodes BEGIN SELECT RAISE(ABORT,'test rollback'); END").execute(&admin.pool).await.unwrap();
+    assert!(
+        admin
+            .update_quick_category("新分类", Some("应当回滚"))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        serde_json::to_value(admin.snapshot().await.unwrap()).unwrap(),
+        before
+    );
+    sqlx::query("DROP TRIGGER reject_category_update")
+        .execute(&admin.pool)
+        .await
+        .unwrap();
+    admin.update_quick_category("新分类", None).await.unwrap();
+    let release = admin.publish().await.unwrap();
+    assert!(release.quick_categories.is_empty());
+    assert_eq!(release.nodes[0].category, "未分类");
+    sales.apply(&release, "").await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert_eq!(snapshot.nodes[0].node, personal);
+    assert!(snapshot.quick_categories.contains(&"原分类".into()));
+    sales.create_quick_category("个人分类").await.unwrap();
+    personal.category = "个人分类".into();
+    sales.save_node(personal.clone()).await.unwrap();
+    sales
+        .update_quick_category("个人分类", Some("我的分类"))
+        .await
+        .unwrap();
+    assert!(
+        sales
+            .snapshot()
+            .await
+            .unwrap()
+            .manageable_quick_categories
+            .contains(&"我的分类".into())
+    );
+    sales.update_quick_category("我的分类", None).await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert_eq!(snapshot.nodes[0].node.replies["ko"], "내 답변");
+    assert_eq!(snapshot.nodes[0].node.category, "未分类");
+    assert_eq!(
+        admin.snapshot().await.unwrap().nodes[0].node.replies["ko"],
+        "원래 답변"
+    );
+}
+
+#[tokio::test]
+async fn foreign_backup_import_merges_drafts_remaps_references_and_keeps_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = create_admin(&dir.path().join("source")).await;
+    let material = binary_material(&source, "manual.txt", b"shared content").await;
+    source.create_quick_category("空快捷分类").await.unwrap();
+    source.create_material_category("空素材分类").await.unwrap();
+    let mut root = node("same-id", "백업 답변");
+    root.position = Some(Position { x: 55.0, y: 70.0 });
+    root.material_ids = vec![material.id.clone(), "removed-material".into()];
+    root.branches = vec![Branch {
+        id: "branch".into(),
+        label: "继续".into(),
+        target_id: "child".into(),
+    }];
+    let mut child = node("child", "다음 답변");
+    child.is_entry = false;
+    source.save_nodes(vec![root.clone(), child]).await.unwrap();
+    source.publish().await.unwrap();
+    root.replies.insert("ko".into(), "최신 초안 답변".into());
+    source.save_node(root.clone()).await.unwrap();
+    let saved = backup::backup(&source, None).await.unwrap();
+    let target = create_admin(&dir.path().join("target")).await;
+    target
+        .save_node(node("same-id", "我的原有话术"))
+        .await
+        .unwrap();
+    binary_material(&target, "existing.txt", b"shared content").await;
+    target.publish().await.unwrap();
+    let identity = target.required_workspace().await.unwrap();
+    let published = serde_json::to_value(target.latest().await.unwrap()).unwrap();
+    assert!(backup::restore(&target, &saved.path).await.is_err());
+    assert_eq!(
+        local(
+            &target,
+            "POST",
+            "/backup/import",
+            json!({"directory":saved.path})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let snapshot = target.snapshot().await.unwrap();
+    assert_eq!(
+        serde_json::to_value(snapshot.workspace.as_ref().unwrap()).unwrap(),
+        serde_json::to_value(&identity).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(target.latest().await.unwrap()).unwrap(),
+        published
+    );
+    assert!(snapshot.draft_dirty);
+    assert!(snapshot.quick_categories.contains(&"空快捷分类".into()));
+    assert!(snapshot.material_categories.contains(&"空素材分类".into()));
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .find(|r| r.node.id == "same-id")
+            .unwrap()
+            .node
+            .replies["ko"],
+        "我的原有话术"
+    );
+    let imported = &snapshot
+        .nodes
+        .iter()
+        .find(|r| {
+            r.node
+                .replies
+                .get("ko")
+                .is_some_and(|s| s == "최신 초안 답변")
+        })
+        .unwrap()
+        .node;
+    assert_ne!(imported.id, root.id);
+    assert_ne!(imported.flow_id, root.flow_id);
+    assert_eq!(imported.position, root.position);
+    assert_ne!(imported.branches[0].id, "branch");
+    let next = &snapshot
+        .nodes
+        .iter()
+        .find(|r| r.node.id == imported.branches[0].target_id)
+        .unwrap()
+        .node;
+    assert_eq!(next.flow_id, imported.flow_id);
+    assert_eq!(next.replies["ko"], "다음 답변");
+    let linked = snapshot
+        .materials
+        .iter()
+        .find(|m| m.id == imported.material_ids[0])
+        .unwrap();
+    assert_ne!(linked.id, material.id);
+    assert_eq!(linked.hash, material.hash);
+    assert_ne!(imported.material_ids[1], "removed-material");
+    assert!(
+        !snapshot
+            .materials
+            .iter()
+            .any(|m| m.id == imported.material_ids[1])
+    );
+    assert_eq!(
+        snapshot
+            .flows
+            .iter()
+            .find(|f| Some(&f.id) == imported.flow_id.as_ref())
+            .unwrap()
+            .name,
+        "测试流程（导入 2）"
+    );
+    let blob_count = std::fs::read_dir(target.root.join("blobs"))
+        .unwrap()
+        .count();
+    assert_eq!(blob_count, 1);
+    // A failed database write rolls back the whole import.
+    let before = serde_json::to_value(target.snapshot().await.unwrap()).unwrap();
+    sqlx::query("CREATE TRIGGER reject_backup_node BEFORE INSERT ON draft_nodes BEGIN SELECT RAISE(ABORT,'test rollback'); END").execute(&target.pool).await.unwrap();
+    assert!(backup::import_as_draft(&target, &saved.path).await.is_err());
+    assert_eq!(
+        serde_json::to_value(target.snapshot().await.unwrap()).unwrap(),
+        before
+    );
+    sqlx::query("DROP TRIGGER reject_backup_node")
+        .execute(&target.pool)
+        .await
+        .unwrap();
+    // File corruption also leaves all current records and releases intact.
+    let hash = material.hash.as_ref().unwrap();
+    tokio::fs::write(
+        std::path::Path::new(&saved.path).join("blobs").join(hash),
+        b"corrupt",
+    )
+    .await
+    .unwrap();
+    assert!(backup::import_as_draft(&target, &saved.path).await.is_err());
+    assert_eq!(
+        serde_json::to_value(target.snapshot().await.unwrap()).unwrap(),
+        before
+    );
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sales
+        .apply(&source.latest().await.unwrap(), "")
+        .await
+        .unwrap();
+    assert_eq!(
+        local(
+            &sales,
+            "POST",
+            "/backup/import",
+            json!({"directory":saved.path})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let release = target.publish().await.unwrap();
+    assert_eq!(release.group_id, identity.group_id);
+    assert_eq!(release.version, identity.version + 1);
+    assert_eq!(release.nodes.len(), 3);
+}
+
+#[tokio::test]
+async fn foreign_single_canvas_backup_import_upgrades_without_adopting_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = create_admin(&dir.path().join("source")).await;
+    source
+        .save_node(node("legacy-root", "이전 내용"))
+        .await
+        .unwrap();
+    source.publish().await.unwrap();
+    let saved = backup::backup(&source, None).await.unwrap();
+    let path = std::path::Path::new(&saved.path).join("backup.json");
+    let mut data: Value = serde_json::from_slice(&tokio::fs::read(&path).await.unwrap()).unwrap();
+    data["format_version"] = json!(1);
+    for field in [
+        "draft_flows",
+        "official_flows",
+        "draft_quick_categories",
+        "official_quick_categories",
+    ] {
+        data.as_object_mut().unwrap().remove(field);
+    }
+    for field in ["draft_nodes", "official_nodes"] {
+        for node in data[field].as_array_mut().unwrap() {
+            node.as_object_mut().unwrap().remove("flowId");
+        }
+    }
+    for release in data["releases"].as_array_mut().unwrap() {
+        release["formatVersion"] = json!(1);
+        release.as_object_mut().unwrap().remove("flows");
+        release.as_object_mut().unwrap().remove("quickCategories");
+        for node in release["nodes"].as_array_mut().unwrap() {
+            node.as_object_mut().unwrap().remove("flowId");
+        }
+    }
+    tokio::fs::write(&path, serde_json::to_vec(&data).unwrap())
+        .await
+        .unwrap();
+    let target = create_admin(&dir.path().join("target")).await;
+    let identity = serde_json::to_value(target.required_workspace().await.unwrap()).unwrap();
+    backup::import_as_draft(&target, &saved.path).await.unwrap();
+    let snapshot = target.snapshot().await.unwrap();
+    assert_eq!(serde_json::to_value(snapshot.workspace).unwrap(), identity);
+    assert_eq!(snapshot.nodes.len(), 1);
+    let imported = &snapshot.nodes[0].node;
+    assert_ne!(imported.id, "legacy-root");
+    assert!(imported.is_entry);
+    assert_eq!(imported.replies["ko"], "이전 내용");
+    assert_eq!(
+        snapshot
+            .flows
+            .iter()
+            .find(|f| Some(&f.id) == imported.flow_id.as_ref())
+            .unwrap()
+            .name,
+        "原有流程"
+    );
+}

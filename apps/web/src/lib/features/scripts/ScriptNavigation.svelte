@@ -9,6 +9,7 @@
     onkind,
     onflow,
     oncategory,
+    oncategorychange,
     editable = false,
     flowCount = app.nodes.filter((r) => r.node.kind !== 'quick').length,
     quickCount = app.nodes.filter((r) => r.node.kind === 'quick').length,
@@ -17,6 +18,7 @@
     onkind: (kind: ScriptKind) => void;
     onflow: (id: string) => void;
     oncategory: (name: string) => void;
+    oncategorychange?: (oldName: string, name: string) => void;
     editable?: boolean;
     flowCount?: number;
     quickCount?: number;
@@ -50,6 +52,7 @@
   {:else}<QuickCategoryTabs
       selectedId={app.activeQuickCategory}
       onselect={oncategory}
+      onchange={oncategorychange}
       {editable}
     />{/if}
 </div>

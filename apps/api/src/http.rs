@@ -33,6 +33,10 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/scripts", put(save_nodes))
         .route("/api/v1/flows/{id}", put(save_flow))
         .route("/api/v1/quick-categories", post(create_quick_category))
+        .route(
+            "/api/v1/quick-categories/{name}",
+            put(rename_quick_category).delete(delete_quick_category),
+        )
         .route("/api/v1/scripts/{id}/reset", post(reset_node))
         .route("/api/v1/scripts/import", post(import_scripts))
         .route("/api/v1/materials", post(save_material))
@@ -49,6 +53,7 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/sync/status", get(sync_status))
         .route("/api/v1/demo", post(demo))
         .route("/api/v1/backup", post(create_backup))
+        .route("/api/v1/backup/import", post(import_backup))
         .route("/api/v1/restore", post(restore_backup))
         .route("/api/v1/package/export", post(export_package))
         .route("/api/v1/package/import", post(import_package))
@@ -377,6 +382,26 @@ pub async fn create_quick_category(
     Ok(Json(state.snapshot().await?))
 }
 
+#[utoipa::path(put,path="/api/v1/quick-categories/{name}",params(("name"=String,Path)),request_body=CreateQuickCategory,responses((status=200,body=Snapshot)))]
+pub async fn rename_quick_category(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(input): Json<CreateQuickCategory>,
+) -> Result<Json<Snapshot>> {
+    state
+        .update_quick_category(&name, Some(&input.name))
+        .await?;
+    Ok(Json(state.snapshot().await?))
+}
+#[utoipa::path(delete,path="/api/v1/quick-categories/{name}",params(("name"=String,Path)),responses((status=200,body=Snapshot)))]
+pub async fn delete_quick_category(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Snapshot>> {
+    state.update_quick_category(&name, None).await?;
+    Ok(Json(state.snapshot().await?))
+}
+
 #[utoipa::path(post,path="/api/v1/material-categories",request_body=CreateMaterialCategory,responses((status=200,body=Snapshot)))]
 pub async fn create_material_category(
     State(state): State<AppState>,
@@ -521,6 +546,14 @@ pub async fn restore_backup(
     Json(input): Json<RestoreRequest>,
 ) -> Result<Json<Snapshot>> {
     backup::restore(&state, &input.directory).await?;
+    Ok(Json(state.snapshot().await?))
+}
+#[utoipa::path(post,path="/api/v1/backup/import",request_body=RestoreRequest,responses((status=200,body=Snapshot)))]
+pub async fn import_backup(
+    State(state): State<AppState>,
+    Json(input): Json<RestoreRequest>,
+) -> Result<Json<Snapshot>> {
+    backup::import_as_draft(&state, &input.directory).await?;
     Ok(Json(state.snapshot().await?))
 }
 pub async fn export_package(

@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 
 async function drag(page: Page, from: Locator, to: Locator | { x: number; y: number }) {
   const start = await from.boundingBox();
@@ -169,7 +170,7 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await expect(page.getByRole('heading',{name:'客户说太贵了',exact:true})).toBeVisible();
   await expect(page.getByText('当前流程已到此处',{exact:true})).toHaveCount(0);
 
-  await page.getByRole('button',{name:'发布与同步',exact:true}).click();
+  await page.getByRole('button',{name:'设置',exact:true}).click();
   await page.getByRole('button',{name:'发布更新',exact:true}).click();
   await expect(page.getByText('当前已发布版本 v1 · 草稿不会自动同步')).toBeVisible();
   await page.reload();
@@ -368,7 +369,7 @@ test('悬浮窗页面导航、未保存编辑保护与本机流程排序', async
   await page.getByRole('button',{name:'关闭预览',exact:true}).click();
   if (await page.getByRole('button',{name:'关闭提示',exact:true}).isVisible()) await page.getByRole('button',{name:'关闭提示',exact:true}).click();
   await page.screenshot({path:testInfo.outputPath('compact-library.png'),fullPage:true});
-  for (const [id, name] of [['library','知识库'],['sync','发布与同步'],['settings','工作组与备份'],['scripts','话术与流程']]) {
+  for (const [id, name] of [['library','知识库'],['settings','设置'],['scripts','话术与流程']]) {
     await navigation.selectOption(id);
     await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(400);
@@ -493,5 +494,100 @@ test('快捷分类复用流程导航，空分类、草稿、排序与悬浮窗�
   const snapshot = await (await page.request.get('/api/v1/snapshot')).json();
   expect(snapshot.quickCategories).toEqual(expect.arrayContaining(['价格咨询','产品答疑','暂存空分类']));
   expect(snapshot.nodes.find((r:{node:{title:string}}) => r.node.title === '分类产品回复').node.category).toBe('价格咨询');
+  expect(errors).toEqual([]);
+});
+
+
+test('按截图精简导航和编辑，分类改名删除及跨工作组备份导入', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const initial = await (await page.request.get('/api/v1/snapshot')).json();
+  if (!initial.workspace) {
+    await page.request.post('/api/v1/group', {headers:{'x-knowtosay-local':'1'},data:{name:'精简界面验收'}});
+    await page.request.post('/api/v1/demo', {headers:{'x-knowtosay-local':'1'}});
+  }
+  await page.goto('/');
+  await expect(page.locator('.sidebar nav button')).toHaveText(['销售工作台','话术与流程'+(await (await page.request.get('/api/v1/snapshot')).json()).nodes.length,'知识库','设置']);
+  await expect(page.locator('.global-nav')).toHaveCount(0);
+  await expect(page.locator('.workspace-switch')).toHaveCount(0);
+  expect((await page.locator('.topbar').boundingBox())!.y).toBe(0);
+  expect((await page.locator('.sidebar').boundingBox())!.y).toBe(0);
+  await page.getByRole('button',{name:'话术与流程',exact:false}).click();
+  await page.getByRole('button',{name:'新建流程',exact:true}).click();
+  await page.getByLabel('流程名称',{exact:true}).fill('自动入口验收');
+  await page.getByRole('button',{name:'保存流程名称',exact:true}).click();
+  await expect(page.getByRole('tab',{name:'自动入口验收',exact:true})).toHaveAttribute('aria-selected','true');
+  await page.getByRole('button',{name:'新建话术',exact:true}).first().click();
+  await expect(page.getByRole('combobox',{name:'话术类型',exact:true})).toHaveCount(0);
+  await expect(page.getByLabel('作为流程入口')).toHaveCount(0);
+  await page.getByLabel('题目',{exact:true}).fill('第一步自动入口');
+  await page.getByLabel('한국어 · 韩语',{exact:true}).fill('첫 단계');
+  await page.getByRole('button',{name:'新建话术',exact:true}).first().click();
+  await page.getByLabel('题目',{exact:true}).fill('第二步自动非入口');
+  await page.getByLabel('한국어 · 韩语',{exact:true}).fill('다음 단계');
+  await page.getByRole('button',{name:'保存话术',exact:true}).click();
+  await expect(page.getByRole('button',{name:'保存话术',exact:true})).toBeDisabled();
+  let snapshot = await (await page.request.get('/api/v1/snapshot')).json();
+  expect(snapshot.nodes.find((r:{node:{title:string}}) => r.node.title === '第一步自动入口').node.isEntry).toBe(true);
+  expect(snapshot.nodes.find((r:{node:{title:string}}) => r.node.title === '第二步自动非入口').node.isEntry).toBe(false);
+  await page.getByRole('tab',{name:/快捷话术/}).click();
+  await page.getByRole('button',{name:'新建分类',exact:true}).click();
+  await page.getByLabel('分类名称',{exact:true}).fill('管理分类');
+  await page.getByRole('button',{name:'保存分类名称',exact:true}).click();
+  await expect(page.getByRole('tab',{name:'管理分类',exact:true})).toHaveAttribute('aria-selected','true');
+  await page.getByRole('button',{name:'新建快捷话术',exact:true}).click();
+  await page.getByLabel('题目',{exact:true}).fill('分类管理中保留草稿');
+  await page.getByLabel('한국어 · 韩语',{exact:true}).fill('분류를 변경해도 보존합니다.');
+  await page.getByRole('button',{name:'重命名当前分类',exact:true}).click();
+  await page.getByLabel('分类名称',{exact:true}).fill('改名后的分类');
+  await page.getByRole('button',{name:'保存分类名称',exact:true}).click();
+  await expect(page.getByRole('tab',{name:'改名后的分类',exact:true})).toHaveAttribute('aria-selected','true');
+  await expect(page.getByLabel('题目',{exact:true})).toHaveValue('分类管理中保留草稿');
+  await expect(page.getByLabel('分类',{exact:true})).toHaveValue('改名后的分类');
+  await expect(page.getByRole('tab',{name:'管理分类',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'保存话术',exact:true}).click();
+  await expect(page.getByRole('button',{name:'保存话术',exact:true})).toBeDisabled();
+  await page.getByLabel('客户问题 / 特定回复',{exact:true}).fill('删除分类时保留未保存修改');
+  page.once('dialog', dialog => dialog.dismiss());
+  await page.getByRole('button',{name:'删除当前分类',exact:true}).click();
+  await expect(page.getByRole('tab',{name:'改名后的分类',exact:true})).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button',{name:'删除当前分类',exact:true}).click();
+  await expect(page.getByLabel('分类',{exact:true})).toHaveValue('未分类');
+  await expect(page.getByLabel('客户问题 / 特定回复',{exact:true})).toHaveValue('删除分类时保留未保存修改');
+  await expect(page.getByRole('button',{name:'重命名当前分类',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'删除当前分类',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'保存话术',exact:true}).click();
+  await expect(page.getByRole('button',{name:'保存话术',exact:true})).toBeDisabled();
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'本次发布内容',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'当前工作组',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'备份管理员资料',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'导入工作组备份',exact:true})).toBeVisible();
+  const saved = await (await page.request.post('/api/v1/backup',{headers:{'x-knowtosay-local':'1'},data:{directory:null}})).json();
+  const path = resolve(saved.path,'backup.json');
+  const foreign = JSON.parse(await readFile(path,'utf8'));
+  foreign.workspace.groupId = crypto.randomUUID();
+  foreign.workspace.name = '其他管理员的工作组';
+  for (const release of foreign.releases) { release.groupId = foreign.workspace.groupId; release.groupName = foreign.workspace.name; }
+  await writeFile(path,JSON.stringify(foreign));
+  const before = await (await page.request.get('/api/v1/snapshot')).json();
+  await page.getByLabel('要导入的工作组备份文件夹',{exact:true}).fill(saved.path);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button',{name:'选择工作组备份并导入',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('已导入到当前主库草稿');
+  snapshot = await (await page.request.get('/api/v1/snapshot')).json();
+  expect(snapshot.workspace).toEqual(before.workspace);
+  expect(snapshot.nodes.length).toBe(before.nodes.length + foreign.draft_nodes.length);
+  expect(snapshot.materials.length).toBe(before.materials.length + foreign.draft_materials.length);
+  expect(new Set(snapshot.nodes.map((r:{node:{id:string}}) => r.node.id)).size).toBe(snapshot.nodes.length);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({path:testInfo.outputPath('unified-settings.png'),fullPage:true});
+  await page.reload();
+  await expect(page.getByRole('button',{name:'设置',exact:true})).toBeVisible();
+  await page.getByRole('tab',{name:/快捷话术/}).click();
+  await expect(page.getByRole('tab',{name:'改名后的分类',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('tab',{name:'管理分类',exact:true})).toHaveCount(0);
   expect(errors).toEqual([]);
 });

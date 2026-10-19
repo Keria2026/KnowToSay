@@ -445,12 +445,12 @@ form {
 .app-shell {
   display: grid;
   grid-template-columns: 216px minmax(0, 1fr);
-  min-height: calc(100vh - 44px);
+  min-height: 100vh;
 }
 .sidebar {
   position: fixed;
   left: 0;
-  top: 44px;
+  top: 0;
   bottom: 0;
   width: 216px;
   background: var(--canvas);
@@ -477,45 +477,10 @@ form {
   font-weight: 400;
   margin-top: 3px;
 }
-.workspace-switch {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin: 38px 0 28px;
-  padding: 10px 8px;
-  border: 1px solid var(--soft-line);
-  border-radius: 8px;
-  font-size: var(--text-caption);
-}
-.workspace-switch > span {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.workspace-switch small {
-  display: block;
-  font-size: var(--text-caption);
-  color: var(--muted);
-  margin-top: 3px;
-}
-.workspace-switch > svg {
-  color: var(--muted);
-}
-.workspace-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--pearl);
-  font-size: var(--text-caption);
-}
 .nav-caption {
   font-size: var(--text-caption);
   color: var(--muted);
-  margin: 0 13px 10px;
+  margin: 32px 13px 10px;
 }
 .sidebar nav {
   display: flex;
@@ -583,7 +548,7 @@ form {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 44px);
+  min-height: 100vh;
 }
 .topbar {
   height: 52px;
@@ -595,7 +560,7 @@ form {
   background: rgb(245 245 247 / 80%);
   gap: 20px;
   position: sticky;
-  top: 44px;
+  top: 0;
   z-index: 20;
   backdrop-filter: blur(20px);
 }
@@ -1728,7 +1693,7 @@ summary {
   }
 }
 .onboarding {
-  min-height: calc(100vh - 44px);
+  min-height: 100vh;
   display: grid;
   grid-template-columns: 1fr 1fr;
   background: white;
@@ -2008,18 +1973,18 @@ summary {
     height: 52px;
     background: rgb(245 245 247 / 80%);
     backdrop-filter: blur(20px);
-    top: 44px;
+    top: 0;
   }
 }
 @media (max-width: 1200px) {
   .app-shell {
     grid-template-columns: 185px minmax(0, 1fr);
-    min-height: calc(100vh - 44px);
+    min-height: 100vh;
   }
   .sidebar {
     width: 185px;
     padding: 25px 12px;
-    top: 44px;
+    top: 0;
   }
   .brand {
     font-size: 17px;
@@ -2038,7 +2003,7 @@ summary {
     height: 52px;
     background: rgb(245 245 247 / 80%);
     backdrop-filter: blur(20px);
-    top: 44px;
+    top: 0;
   }
   .workbench-grid {
     grid-template-columns: 145px minmax(260px, 1fr);
@@ -2114,18 +2079,17 @@ summary {
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 70px minmax(0, 1fr);
-    min-height: calc(100vh - 44px);
+    min-height: 100vh;
   }
   .sidebar {
     width: 70px;
     padding: 25px 10px;
-    top: 44px;
+    top: 0;
   }
   .brand {
     padding: 0 8px;
   }
   .brand > div:last-child,
-  .workspace-switch,
   .nav-caption,
   .sidebar nav button > span,
   .sidebar nav button > small,
@@ -2197,7 +2161,7 @@ summary {
   }
   .onboarding {
     grid-template-columns: 1fr 1fr;
-    min-height: calc(100vh - 44px);
+    min-height: 100vh;
   }
   .welcome-detail {
     margin-top: 45px;
@@ -2210,7 +2174,7 @@ summary {
     padding: 4px 32px;
     background: rgb(245 245 247 / 80%);
     backdrop-filter: blur(20px);
-    top: 44px;
+    top: 0;
   }
   .language-picker select {
     max-width: 170px;
@@ -2229,7 +2193,7 @@ summary {
 @media (max-width: 640px) {
   .onboarding {
     display: block;
-    min-height: calc(100vh - 44px);
+    min-height: 100vh;
   }
   .welcome-art {
     padding: 35px 28px;
@@ -2274,7 +2238,7 @@ summary {
   }
   .app-shell {
     grid-template-columns: 1fr;
-    min-height: calc(100vh - 44px);
+    min-height: 100vh;
   }
   .sidebar {
     position: static;
@@ -2285,7 +2249,7 @@ summary {
     flex-direction: row;
     align-items: center;
     gap: 20px;
-    top: 44px;
+    top: 0;
   }
   .sidebar .brand {
     padding: 0;
@@ -2304,7 +2268,7 @@ summary {
   }
   .main-shell {
     grid-column: 1;
-    min-height: calc(100vh - 44px);
+    min-height: 100vh;
   }
   .topbar {
     padding: 4px 32px;
@@ -2314,7 +2278,7 @@ summary {
     flex-wrap: wrap;
     background: rgb(245 245 247 / 80%);
     backdrop-filter: blur(20px);
-    top: 44px;
+    top: 0;
   }
   .global-search {
     min-width: 190px;
@@ -2550,29 +2514,6 @@ summary {
   }
 }
 
-.global-nav {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  height: 44px;
-  background: var(--black);
-  color: var(--canvas);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 0 32px;
-  font-size: var(--text-fine);
-  font-weight: 400;
-  line-height: 1;
-  letter-spacing: -0.12px;
-}
-.global-nav > span:last-child {
-  color: var(--muted-on-dark);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .global-search:focus-within {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
@@ -2599,9 +2540,6 @@ summary {
   }
 }
 @media (max-width: 640px) {
-  .global-nav {
-    padding-inline: 18px;
-  }
   .sidebar {
     top: auto;
   }
@@ -2620,7 +2558,7 @@ summary {
     align-items: flex-start;
   }
   .topbar {
-    top: 44px;
+    top: 0;
   }
 }
 @media (max-width: 419px) {

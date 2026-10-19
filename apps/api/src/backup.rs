@@ -6,7 +6,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -66,22 +66,30 @@ async fn copy_materials(from: &Path, to: &Path, materials: &[Material]) -> Resul
             }
         }
     }
-    let required = hashes.values().try_fold(0u64, |a, b| {
-        a.checked_add(*b)
-            .ok_or_else(|| Error::invalid("素材总大小无效"))
-    })?;
-    if fs2::available_space(to)? < required + 64 * 1024 * 1024 {
-        return Err(Error::conflict("目标磁盘空间不足"));
-    }
+    let mut pending = Vec::new();
+    let mut required = 64 * 1024 * 1024u64;
     for (hash, size) in hashes {
         let source = from.join(hash);
         let target = to.join(hash);
         if tokio::fs::metadata(&source).await?.len() != size || hash_file(&source).await? != *hash {
             return Err(Error::conflict("备份或素材文件校验失败，当前资料未更改"));
         }
-        if target == source {
+        if source == target
+            || (target.exists()
+                && tokio::fs::metadata(&target).await?.len() == size
+                && hash_file(&target).await? == *hash)
+        {
             continue;
         }
+        required = required
+            .checked_add(size)
+            .ok_or_else(|| Error::invalid("素材总大小无效"))?;
+        pending.push((hash, size, source, target));
+    }
+    if fs2::available_space(to)? < required {
+        return Err(Error::conflict("目标磁盘空间不足"));
+    }
+    for (hash, size, source, target) in pending {
         let temp = to.join(format!("{}.copying", uuid::Uuid::new_v4()));
         tokio::fs::copy(&source, &temp).await?;
         if hash_file(&temp).await? != *hash {
@@ -212,42 +220,16 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
         return Err(Error::denied());
     }
     let path = PathBuf::from(directory);
-    let mut data: BackupData =
-        serde_json::from_slice(&tokio::fs::read(path.join("backup.json")).await?)?;
-    if data.format_version == 1 {
-        upgrade_single_flow(&mut data.draft_nodes, &mut data.draft_flows);
-        upgrade_single_flow(&mut data.official_nodes, &mut data.official_flows);
-        data.format_version = 2;
-    }
-    for release in &mut data.releases {
-        release.upgrade();
-    }
-    if data.format_version != 2
-        || data.workspace.role != Role::Admin
-        || uuid::Uuid::parse_str(&data.workspace.group_id).is_err()
-    {
-        return Err(Error::invalid("不支持此备份格式"));
-    }
+    let data = read_backup(&path).await?;
     if current
         .as_ref()
         .is_some_and(|w| w.group_id != data.workspace.group_id)
     {
         return Err(Error::conflict("备份属于其他工作组，不能覆盖当前工作组"));
     }
-    validate_manifest_content(&data.official_nodes, &data.official_materials)?;
-    crate::db::validate_flow_membership(&data.official_nodes, &data.official_flows)?;
-    crate::db::validate_flow_membership(&data.draft_nodes, &data.draft_flows)?;
-    for n in &data.draft_nodes {
-        crate::db::validate_node(n)?;
-    }
     let mut all = data.official_materials.clone();
     all.extend(data.draft_materials.clone());
     for r in &data.releases {
-        if r.group_id != data.workspace.group_id {
-            return Err(Error::invalid("备份中含其他工作组版本"));
-        }
-        validate_manifest_content(&r.nodes, &r.materials)?;
-        crate::db::validate_flow_membership(&r.nodes, &r.flows)?;
         all.extend(r.materials.clone());
     }
     copy_materials(&path.join("blobs"), &state.root.join("blobs"), &all).await?;
@@ -365,6 +347,146 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
         .execute(&mut *tx)
         .await?;
     sqlx::query("INSERT INTO workspace(id,json) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json").bind(serde_json::to_string(&workspace)?).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn read_backup(path: &Path) -> Result<BackupData> {
+    let mut data: BackupData =
+        serde_json::from_slice(&tokio::fs::read(path.join("backup.json")).await?)?;
+    if data.format_version == 1 {
+        upgrade_single_flow(&mut data.draft_nodes, &mut data.draft_flows);
+        upgrade_single_flow(&mut data.official_nodes, &mut data.official_flows);
+        data.format_version = 2;
+    }
+    for release in &mut data.releases {
+        release.upgrade();
+    }
+    if data.format_version != 2
+        || data.workspace.role != Role::Admin
+        || uuid::Uuid::parse_str(&data.workspace.group_id).is_err()
+    {
+        return Err(Error::invalid("不支持此备份格式"));
+    }
+    validate_manifest_content(&data.official_nodes, &data.official_materials)?;
+    crate::db::validate_flow_membership(&data.official_nodes, &data.official_flows)?;
+    crate::db::validate_flow_membership(&data.draft_nodes, &data.draft_flows)?;
+    for n in &data.draft_nodes {
+        crate::db::validate_node(n)?;
+    }
+    validate_manifest_content(&[], &data.draft_materials)?;
+    for release in &data.releases {
+        if release.group_id != data.workspace.group_id {
+            return Err(Error::invalid("备份中含其他工作组版本"));
+        }
+        validate_manifest_content(&release.nodes, &release.materials)?;
+        crate::db::validate_flow_membership(&release.nodes, &release.flows)?;
+    }
+    Ok(data)
+}
+
+fn imported_id(ids: &mut BTreeMap<String, String>, original: &str) -> String {
+    ids.entry(original.to_owned())
+        .or_insert_with(|| uuid::Uuid::new_v4().to_string())
+        .clone()
+}
+
+/// Copy data into this administrator's draft without adopting the source identity or releases.
+pub async fn import_as_draft(state: &AppState, directory: &str) -> Result<()> {
+    let _guard = state.write.lock().await;
+    state.admin().await?;
+    let path = PathBuf::from(directory);
+    let data = read_backup(&path).await?;
+    let mut flow_ids = BTreeMap::new();
+    let mut node_ids = BTreeMap::new();
+    let mut material_ids = BTreeMap::new();
+    let mut names: BTreeSet<String> = state
+        .list::<Flow>("draft_flows")
+        .await?
+        .into_iter()
+        .map(|f| f.name.to_lowercase())
+        .collect();
+    let mut flows = data.draft_flows;
+    for flow in &mut flows {
+        flow.id = imported_id(&mut flow_ids, &flow.id);
+        let original = flow.name.clone();
+        let mut index = 1;
+        while !names.insert(flow.name.to_lowercase()) {
+            index += 1;
+            let suffix = format!("（导入 {index}）");
+            flow.name = original
+                .chars()
+                .take(80 - suffix.chars().count())
+                .collect::<String>()
+                + &suffix;
+        }
+    }
+    let mut materials = data.draft_materials;
+    for material in &mut materials {
+        material.id = imported_id(&mut material_ids, &material.id);
+    }
+    let mut nodes = data.draft_nodes;
+    for node in &mut nodes {
+        node.id = imported_id(&mut node_ids, &node.id);
+        if let Some(id) = &node.flow_id {
+            node.flow_id = Some(imported_id(&mut flow_ids, id));
+        }
+        for branch in &mut node.branches {
+            branch.id = uuid::Uuid::new_v4().to_string();
+            branch.target_id = imported_id(&mut node_ids, &branch.target_id);
+        }
+        for id in &mut node.material_ids {
+            *id = imported_id(&mut material_ids, id);
+        }
+    }
+    crate::db::validate_flow_membership(&nodes, &flows)?;
+    copy_materials(&path.join("blobs"), &state.root.join("blobs"), &materials).await?;
+    let mut tx = state.pool.begin().await?;
+    for (table, entries) in [
+        (
+            "draft_flows",
+            flows
+                .iter()
+                .map(|v| Ok((&v.id, serde_json::to_string(v)?)))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        (
+            "draft_materials",
+            materials
+                .iter()
+                .map(|v| Ok((&v.id, serde_json::to_string(v)?)))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        (
+            "draft_nodes",
+            nodes
+                .iter()
+                .map(|v| Ok((&v.id, serde_json::to_string(v)?)))
+                .collect::<Result<Vec<_>>>()?,
+        ),
+    ] {
+        for (id, json) in entries {
+            sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?)"))
+                .bind(id)
+                .bind(json)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+    for (table, categories) in [
+        ("draft_quick_categories", data.draft_quick_categories),
+        ("draft_material_categories", data.draft_material_categories),
+    ] {
+        for name in categories {
+            sqlx::query(&format!(
+                "INSERT INTO {table}(id,json) VALUES(?,?) ON CONFLICT(id) DO NOTHING"
+            ))
+            .bind(&name)
+            .bind(serde_json::to_string(&name)?)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
     tx.commit().await?;
     Ok(())
 }

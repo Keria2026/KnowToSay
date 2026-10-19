@@ -76,8 +76,12 @@
     if (app.freshNode) {
       const node = app.freshNode;
       if (node.kind === 'quick') node.category = app.activeQuickCategory;
-      if (node.kind !== 'quick' && !node.flowId)
-        node.flowId = app.activeFlowId || null;
+      if (node.kind !== 'quick') {
+        if (!node.flowId) node.flowId = app.activeFlowId || null;
+        node.isEntry = !records.some(
+          (r) => r.node.kind !== 'quick' && r.node.flowId === node.flowId,
+        );
+      }
       drafts[node.id] = JSON.parse(JSON.stringify(node));
       app.editorId = node.id;
       app.freshNode = null;
@@ -109,6 +113,12 @@
     app.quickCategory = name;
     app.editorId = '';
   }
+  function categoryChanged(oldName: string, name: string) {
+    for (const node of Object.values(drafts)) {
+      if (node.kind === 'quick' && quickCategoryName(node) === oldName)
+        node.category = name;
+    }
+  }
   function add() {
     if (app.editorKind === 'flow' && !app.activeFlowId) return;
     const node = newNode(app.editorKind, app.activeFlowId);
@@ -121,35 +131,6 @@
     app.editorKind = kind;
     app.browseKind = kind;
     app.editorId = '';
-  }
-  function changeKind(event: Event) {
-    if (!draft) return;
-    const input = event.currentTarget as HTMLSelectElement;
-    const next = input.value as ScriptKind;
-    if (
-      next === 'quick' &&
-      (draft.branches.length ||
-        records.some((r) =>
-          r.node.branches.some((b) => b.targetId === draft!.id),
-        ))
-    ) {
-      input.value = draft.kind ?? 'flow';
-      app.error = '请先移除此话术的流程分支和指向它的连接，再改为快捷话术';
-      return;
-    }
-    if (next === 'flow' && !app.activeFlowId) {
-      input.value = draft.kind || 'flow';
-      app.error = '请先新建流程，再转换话术类型';
-      return;
-    }
-    draft.kind = next;
-    draft.flowId = next === 'flow' ? app.activeFlowId : null;
-    app.editorKind = next;
-    if (next === 'quick') {
-      draft.category = app.activeQuickCategory;
-      draft.isEntry = false;
-      draft.position = null;
-    }
   }
   async function save() {
     if (!changed.length || app.busy) return;
@@ -311,6 +292,7 @@
     onkind={switchKind}
     onflow={switchFlow}
     oncategory={switchCategory}
+    oncategorychange={categoryChanged}
     editable
     flowCount={allFlowNodes.length}
     quickCount={quickNodes.length}
@@ -459,23 +441,6 @@
                       >{category.name}</option
                     >{/each}
                 </select></label
-              >
-            {/if}
-            <label
-              >话术类型<select
-                value={draft.kind ?? 'flow'}
-                onchange={changeKind}
-                ><option value="flow">流程话术</option><option value="quick"
-                  >快捷话术</option
-                ></select
-              ></label
-            >
-            {#if draft.kind !== 'quick'}
-              <label class="check-label"
-                ><input
-                  type="checkbox"
-                  bind:checked={draft.isEntry}
-                />作为流程入口</label
               >
             {/if}
             <div class="editor-section">

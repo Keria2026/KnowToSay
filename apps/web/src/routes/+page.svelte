@@ -5,11 +5,9 @@
     MessageSquare,
     GitBranch,
     BookOpen,
-    Radio,
     Settings,
     PanelRightClose,
     Expand,
-    ChevronDown,
     X,
     Check,
     RefreshCw,
@@ -26,7 +24,6 @@
   import LibraryPage from '$lib/features/knowledge/LibraryPage.svelte';
   import MaterialDialog from '$lib/features/knowledge/MaterialDialog.svelte';
   import SearchResults from '$lib/features/workspace/SearchResults.svelte';
-  import SyncPage from '$lib/features/workspace/SyncPage.svelte';
   import SettingsPage from '$lib/features/workspace/SettingsPage.svelte';
   import QuickSearch from '$lib/features/workspace/QuickSearch.svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -37,16 +34,8 @@
     { id: 'workbench', name: '销售工作台', icon: MessageSquare },
     { id: 'scripts', name: '话术与流程', icon: GitBranch },
     { id: 'library', name: '知识库', icon: BookOpen },
-    { id: 'sync', name: '发布与同步', icon: Radio },
-    { id: 'settings', name: '工作组与备份', icon: Settings },
+    { id: 'settings', name: '设置', icon: Settings },
   ];
-  const titles: Record<string, string> = {
-    workbench: '让每次沟通，都有准备。',
-    scripts: '话术与流程',
-    library: '知识库',
-    sync: '发布与同步',
-    settings: '工作组与备份',
-  };
   $effect(() => {
     const group = app.workspace?.groupId;
     const flows = app.data?.flows;
@@ -113,16 +102,6 @@
   /></svelte:head
 >
 <svelte:window onkeydown={shortcut} />
-{#if !quickSearchMode}
-  <header class="global-nav" aria-label="应用信息">
-    <span>KnowToSay</span>
-    <span
-      >{app.workspace
-        ? `${app.workspace.name} · ${app.admin ? '管理模式' : '使用模式'}`
-        : '话术与知识库'}</span
-    >
-  </header>
-{/if}
 {#if quickSearchMode}<QuickSearch />
 {:else if app.loading}<div class="boot-screen">
     <div class="brand-mark">K<span></span></div>
@@ -151,23 +130,12 @@
           ><div class="brand-mark">K<span></span></div>
           <div>KnowToSay<small>让知识成为好回答</small></div></a
         >
-        <div class="workspace-switch">
-          <div class="workspace-avatar">{app.workspace.name.slice(0, 1)}</div>
-          <span
-            >{app.workspace.name}<small
-              >{app.admin ? '管理员工作空间' : '业务员工作空间'}</small
-            ></span
-          ><ChevronDown size={15} />
-        </div>
         <span class="nav-caption">工作空间</span>
         <nav>
           {#each navigation as item}{@const Icon = item.icon}<button
               class:active={app.nav === item.id && !app.query}
               onclick={() => navigate(item.id)}
-              ><Icon size={19} strokeWidth={1.65} /><span
-                >{item.id === 'sync' && !app.admin
-                  ? '资料同步'
-                  : item.name}</span
+              ><Icon size={19} strokeWidth={1.65} /><span>{item.name}</span
               >{#if item.id === 'scripts'}<small>{app.nodes.length}</small
                 >{/if}</button
             >{/each}
@@ -275,7 +243,6 @@
           {#if app.nav === 'workbench'}<Workbench />
           {:else if app.nav === 'scripts'}<ScriptsPage />
           {:else if app.nav === 'library'}<LibraryPage />
-          {:else if app.nav === 'sync'}<SyncPage />
           {:else}<SettingsPage />{/if}
         {/if}
       </main>

@@ -9,6 +9,36 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/backup/import": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "import_backup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/flows/{id}": {
       "put": {
         "tags": [
@@ -355,6 +385,74 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quick-categories/{name}": {
+      "put": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "rename_quick_category",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateQuickCategory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "delete_quick_category",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -1158,6 +1256,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Flow"
+            }
+          },
+          "manageableQuickCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "materialCategories": {
