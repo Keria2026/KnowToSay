@@ -1,5 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { api, native, copyText } from './api';
+import {
+  flowOrderKey,
+  readFlowOrder,
+  orderedFlowIds,
+  orderFlows,
+} from '../scripts/order';
 import type {
   Snapshot,
   ScriptNode,
@@ -25,7 +31,8 @@ class WorkspaceStore {
   progress = $state<SyncStatus | null>(null);
   editorId = $state('');
   flowId = $state('');
-  flows = $derived(this.data?.flows ?? []);
+  flowOrder = $state<string[]>([]);
+  flows = $derived(orderFlows(this.data?.flows ?? [], this.flowOrder));
   activeFlowId = $derived(
     this.flows.some((f) => f.id === this.flowId)
       ? this.flowId
@@ -50,6 +57,42 @@ class WorkspaceStore {
     ]),
   ]);
 
+  restoreFlowOrder() {
+    if (!this.workspace) {
+      this.flowOrder = [];
+      return;
+    }
+    try {
+      const key = flowOrderKey(this.workspace.groupId);
+      const order = orderedFlowIds(
+        this.data?.flows ?? [],
+        readFlowOrder(localStorage.getItem(key)),
+      );
+      localStorage.setItem(key, JSON.stringify(order));
+      this.flowOrder = order;
+    } catch {
+      this.flowOrder = [];
+      this.error = '无法读取或保存本机流程顺序，请检查本机存储后重试';
+    }
+  }
+  saveFlowOrder(ids: string[]) {
+    if (!this.workspace) return false;
+    this.error = '';
+    try {
+      const order = orderedFlowIds(this.data?.flows ?? [], ids);
+      const selectedFlow = this.activeFlowId;
+      localStorage.setItem(
+        flowOrderKey(this.workspace.groupId),
+        JSON.stringify(order),
+      );
+      this.flowId = selectedFlow;
+      this.flowOrder = order;
+      return true;
+    } catch {
+      this.error = '流程顺序保存失败，请检查本机存储后重试';
+      return false;
+    }
+  }
   async refresh() {
     const data = await api<Snapshot>('/snapshot');
     this.data = data;

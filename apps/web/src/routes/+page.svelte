@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import {
     Search,
     MessageSquare,
@@ -47,6 +47,11 @@
     sync: '发布与同步',
     settings: '工作组与备份',
   };
+  $effect(() => {
+    const group = app.workspace?.groupId;
+    const flows = app.data?.flows;
+    if (group && flows) untrack(() => app.restoreFlowOrder());
+  });
   onMount(() => {
     quickSearchMode = new URLSearchParams(window.location.search).has(
       'quickSearch',
@@ -89,7 +94,7 @@
     };
   });
   function navigate(id: string) {
-    app.navigate(id);
+    return app.navigate(id);
   }
   function shortcut(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
@@ -200,6 +205,21 @@
             >{:else if !app.compact}<kbd>Ctrl K</kbd>{/if}
         </div>
         <div class="topbar-actions">
+          {#if app.compact}<label class="compact-page-picker">
+              <span class="visually-hidden">页面导航</span>
+              <select
+                aria-label="悬浮窗导航"
+                value={app.nav}
+                onchange={(event) => {
+                  if (!navigate(event.currentTarget.value))
+                    event.currentTarget.value = app.nav;
+                }}
+              >
+                {#each navigation as item}<option value={item.id}
+                    >{item.name}</option
+                  >{/each}
+              </select>
+            </label>{/if}
           <label class="language-picker"
             ><span>{app.compact ? '' : '发送语言'}</span><select
               bind:value={app.language}
@@ -216,7 +236,7 @@
               : native()
                 ? '切换置顶悬浮窗口'
                 : '预览精简布局'}
-            disabled={!!app.busy || app.nav === 'scripts'}
+            disabled={!!app.busy}
             onclick={() => app.toggleCompact()}
             >{#if app.compact}<Expand size={19} />{:else}<PanelRightClose
                 size={19}
@@ -224,37 +244,39 @@
           >
         </div>
       </header>
-      <main
-        class:workbench-main={(app.nav === 'workbench' || app.compact) &&
-          !app.query}
-      >
-        {#if app.query.trim()}<SearchResults />
-        {:else if app.compact}<div class="compact-heading">
-            <strong>KnowToSay</strong><span
-              >{native() ? '置顶工作台' : '精简布局预览'}</span
+      <main class:workbench-main={app.nav === 'workbench' && !app.query}>
+        {#if app.compact}<div class="compact-heading">
+            <strong
+              >{navigation.find((item) => item.id === app.nav)?.name ||
+                'KnowToSay'}</strong
             >
-          </div>
-          <Workbench />
-        {:else if app.nav === 'workbench'}<div class="workbench-heading">
-            <div>
-              <span class="eyebrow">YOUR CONVERSATION COMPANION</span>
-              <h1>让每次沟通，<span>都有准备。</span></h1>
-              <p>从一句问候，到恰好的回应。</p>
-            </div>
-            <div class="workspace-metrics">
+            <span>{native() ? '置顶悬浮窗' : '精简布局预览'}</span>
+          </div>{/if}
+        {#if app.query.trim()}<SearchResults />
+        {:else}
+          {#if !app.compact && app.nav === 'workbench'}<div
+              class="workbench-heading"
+            >
               <div>
-                <strong>{app.nodes.length}</strong><span>可用话术</span>
+                <span class="eyebrow">YOUR CONVERSATION COMPANION</span>
+                <h1>让每次沟通，<span>都有准备。</span></h1>
+                <p>从一句问候，到恰好的回应。</p>
               </div>
-              <div>
-                <strong>{app.materials.length}</strong><span>知识素材</span>
+              <div class="workspace-metrics">
+                <div>
+                  <strong>{app.nodes.length}</strong><span>可用话术</span>
+                </div>
+                <div>
+                  <strong>{app.materials.length}</strong><span>知识素材</span>
+                </div>
               </div>
-            </div>
-          </div>
-          <Workbench />
-        {:else if app.nav === 'scripts'}<ScriptsPage />
-        {:else if app.nav === 'library'}<LibraryPage />
-        {:else if app.nav === 'sync'}<SyncPage />
-        {:else}<SettingsPage />{/if}
+            </div>{/if}
+          {#if app.nav === 'workbench'}<Workbench />
+          {:else if app.nav === 'scripts'}<ScriptsPage />
+          {:else if app.nav === 'library'}<LibraryPage />
+          {:else if app.nav === 'sync'}<SyncPage />
+          {:else}<SettingsPage />{/if}
+        {/if}
       </main>
       <footer class="app-footer">
         <span

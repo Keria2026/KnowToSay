@@ -2886,3 +2886,60 @@ summary {
   border-top: 1px solid var(--soft-line);
   color: var(--muted);
 }
+
+.compact-page-picker {
+  flex: 1;
+  min-width: 0;
+  max-width: 180px;
+  margin: 0 auto 0 0;
+}
+.compact-page-picker select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: var(--text-caption);
+}
+.compact .library-page,
+.compact .scripts-page,
+.compact .settings-page {
+  padding: 20px;
+}
+.compact .page-heading {
+  flex-direction: column;
+  align-items: stretch;
+}
+.compact .page-heading > .button-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+}
+.compact .named-flow-bar {
+  flex-wrap: wrap;
+}
+.compact .graph-toolbar {
+  flex-wrap: wrap;
+}
+.named-flow-tabs button.drop-target {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.flow-order-list {
+  list-style: none;
+  padding: 0;
+  margin: 17px 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.flow-order-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.flow-order-list li > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

@@ -307,3 +307,93 @@ test('多流程标签保留编辑、独立排列与分支归属', async ({ page 
   await expect(page.getByRole('tab', {name:currentFlowName,exact:true})).toHaveAttribute('aria-selected','true');
   expect(errors).toEqual([]);
 });
+
+test('悬浮窗页面导航、未保存编辑保护与本机流程排序', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const initial = await (await page.request.get('/api/v1/snapshot')).json();
+  if (!initial.workspace) {
+    await page.request.post('/api/v1/group', { headers: {'x-knowtosay-local':'1'}, data: {name:'悬浮窗验收'} });
+    await page.request.post('/api/v1/demo', { headers: {'x-knowtosay-local':'1'} });
+  }
+  const before = await (await page.request.get('/api/v1/snapshot')).json();
+  if (before.flows.length < 2) {
+    const id = crypto.randomUUID();
+    await page.request.put(`/api/v1/flows/${id}`, {headers:{'x-knowtosay-local':'1'},data:{id,name:'第二条验收流程'}});
+  }
+  await page.goto('/');
+  const tabs = page.getByRole('tablist', {name:'流程切换',exact:true});
+  await expect(tabs).toBeVisible();
+  const original = await tabs.getByRole('tab').allTextContents();
+  expect(original.length).toBeGreaterThan(1);
+  const selectedTitle = await page.locator('.conversation-title').innerText();
+  await tabs.getByRole('tab').last().dragTo(tabs.getByRole('tab').first());
+  const dragged = [original.at(-1)!, ...original.slice(0,-1)];
+  await expect(tabs.getByRole('tab')).toHaveText(dragged);
+  await expect(page.locator('.conversation-title')).toHaveText(selectedTitle);
+  await tabs.getByRole('tab').first().focus();
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect(tabs.getByRole('tab')).toHaveText([dragged[1],dragged[0],...dragged.slice(2)]);
+  await page.getByRole('button', {name:'流程排序',exact:true}).click();
+  const orderDialog = page.getByRole('dialog', {name:'流程排序',exact:true});
+  await orderDialog.getByRole('button', {name:`向前移动${dragged[0]}`,exact:true}).click();
+  await page.screenshot({path:testInfo.outputPath('flow-order.png'),fullPage:true});
+  await orderDialog.getByRole('button', {name:'保存排序',exact:true}).click();
+  await expect(tabs.getByRole('tab')).toHaveText(dragged);
+  await page.reload();
+  await expect(tabs.getByRole('tab')).toHaveText(dragged);
+  // Newly synced flows append to this client's preference instead of resetting it.
+  const newId = crypto.randomUUID();
+  await page.request.put(`/api/v1/flows/${newId}`, {headers:{'x-knowtosay-local':'1'},data:{id:newId,name:'新同步流程'}});
+  await page.reload();
+  await expect(tabs.getByRole('tab')).toHaveText([...dragged,'新同步流程']);
+  await page.getByRole('button', {name:'话术与流程',exact:false}).click();
+  await expect(tabs.getByRole('tab')).toHaveText([...dragged,'新同步流程']);
+  await page.getByRole('button', {name:'销售工作台',exact:false}).click();
+  await tabs.getByRole('tab', {name:'销售入门（示例）',exact:true}).click();
+  await page.getByLabel('客户姓名').fill('민수');
+  await page.getByRole('button',{name:'吃了',exact:true}).click();
+  await page.getByRole('button',{name:'继续介绍',exact:true}).click();
+  await page.getByLabel('价格').fill('₩30,000');
+  await page.getByRole('button',{name:'切换悬浮窗口',exact:true}).click();
+  await page.setViewportSize({width:400,height:850});
+  const navigation = page.getByRole('combobox',{name:'悬浮窗导航',exact:true});
+  await expect(navigation).toHaveValue('workbench');
+  await navigation.selectOption('library');
+  await expect(page.getByRole('heading',{name:'知识库',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'文字',exact:true}).click();
+  await page.getByRole('heading',{name:'产品介绍（示例）',exact:true}).click();
+  await expect(page.getByRole('button',{name:'复制正文',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'关闭预览',exact:true}).click();
+  if (await page.getByRole('button',{name:'关闭提示',exact:true}).isVisible()) await page.getByRole('button',{name:'关闭提示',exact:true}).click();
+  await page.screenshot({path:testInfo.outputPath('compact-library.png'),fullPage:true});
+  for (const [id, name] of [['library','知识库'],['sync','发布与同步'],['settings','工作组与备份'],['scripts','话术与流程']]) {
+    await navigation.selectOption(id);
+    await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(400);
+  }
+  const description = page.getByLabel('问题 / 内部说明',{exact:true});
+  const originalDescription = await description.inputValue();
+  await description.fill('悬浮窗未保存的内部说明');
+  await page.getByRole('button',{name:'切换完整窗口',exact:true}).click();
+  await page.setViewportSize({width:1440,height:1000});
+  await expect(description).toHaveValue('悬浮窗未保存的内部说明');
+  await page.getByRole('button',{name:'切换悬浮窗口',exact:true}).click();
+  await page.setViewportSize({width:400,height:850});
+  await expect(description).toHaveValue('悬浮窗未保存的内部说明');
+  page.once('dialog', dialog => dialog.dismiss());
+  await navigation.selectOption('library');
+  await expect(navigation).toHaveValue('scripts');
+  await expect(description).toHaveValue('悬浮窗未保存的内部说明');
+  page.once('dialog', dialog => dialog.accept());
+  await navigation.selectOption('library');
+  await expect(page.getByRole('heading',{name:'知识库',exact:true})).toBeVisible();
+  await navigation.selectOption('workbench');
+  await expect(page.getByRole('heading',{name:'介绍产品',exact:true})).toBeVisible();
+  await expect(page.getByLabel('价格')).toHaveValue('₩30,000');
+  const after = await (await page.request.get('/api/v1/snapshot')).json();
+  expect(after.nodes.find((r:{node:{id:string}}) => r.node.id === 'demo-product').node.question).toBe(originalDescription);
+  await expect(tabs.getByRole('tab')).toHaveText([...dragged,'新同步流程']);
+  expect(errors).toEqual([]);
+});
