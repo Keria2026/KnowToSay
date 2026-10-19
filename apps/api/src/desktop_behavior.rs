@@ -1,6 +1,14 @@
 /// SvelteKit routes on `/`; an explicit `/index.html` becomes a missing route.
 pub const QUICK_SEARCH_PATH: &str = "/?quickSearch=1";
 
+/// Keep client windows inside the available logical monitor dimensions.
+pub fn fit_window_size(target: (f64, f64), screen: (f64, f64)) -> (f64, f64) {
+    (
+        target.0.min((screen.0 - 32.0).max(1.0)),
+        target.1.min((screen.1 - 80.0).max(1.0)),
+    )
+}
+
 /// Screen coordinates are physical pixels, including negative monitor origins.
 pub fn active_edge(
     point: (i32, i32),
@@ -37,6 +45,21 @@ mod tests {
             assert_eq!(url.path(), "/");
             assert_eq!(url.query(), Some("quickSearch=1"));
         }
+    }
+    #[test]
+    fn windows_fit_small_and_scaled_displays() {
+        assert_eq!(
+            fit_window_size((720.0, 560.0), (1920.0, 1080.0)),
+            (720.0, 560.0)
+        );
+        assert_eq!(
+            fit_window_size((720.0, 560.0), (640.0, 480.0)),
+            (608.0, 400.0)
+        );
+        assert_eq!(
+            fit_window_size((400.0, 740.0), (1280.0, 720.0)),
+            (400.0, 640.0)
+        );
     }
     #[test]
     fn disabled_edges_and_corners_are_respected() {

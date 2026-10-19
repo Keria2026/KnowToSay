@@ -273,6 +273,14 @@
               "type": "integer",
               "minimum": 0
             }
+          },
+          {
+            "name": "sheet",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -581,6 +589,14 @@
             "name": "q",
             "in": "query",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -1199,14 +1215,27 @@
       "SheetPage": {
         "type": "object",
         "required": [
+          "sheets",
+          "columnCount",
           "rows",
           "total"
         ],
         "properties": {
+          "columnCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "rows": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SheetRow"
+            }
+          },
+          "sheets": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "total": {

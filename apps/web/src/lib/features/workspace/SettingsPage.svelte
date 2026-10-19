@@ -164,9 +164,9 @@
       </p>
     </div>
     <div class="settings-card">
-      <h3>恢复同一工作组</h3>
+      <h3>用备份替换当前工作组</h3>
       <p class="muted">
-        恢复前检查所有素材，校验失败不替换当前主库。其他工作组的资料请使用下方“导入工作组备份”。
+        用于本工作组数据损坏或回退。备份会替换当前草稿和已发布资料，并生成一个新发布版本；恢复前请先备份当前数据。仅接受同一工作组，素材校验失败时保留当前资料。
       </p>
       {#if !native()}<label
           >备份文件夹<input
@@ -176,11 +176,11 @@
         >{/if}<button
         class="button secondary"
         disabled={!!app.busy}
-        onclick={restore}><RotateCcw size={16} />选择备份并恢复</button
+        onclick={restore}><RotateCcw size={16} />选择备份并替换恢复</button
       >
     </div>
     <div class="settings-card">
-      <h3>导入工作组备份</h3>
+      <h3>追加导入其他工作组资料</h3>
       <p class="muted">
         将其他管理员备份中的草稿话术、流程、知识库素材和分类追加到自己的主库。当前资料会保留，导入后检查并发布。
       </p>
@@ -197,7 +197,7 @@
         class="button secondary"
         disabled={!!app.busy}
         onclick={importBackup}
-        ><FolderOpen size={16} />选择工作组备份并导入</button
+        ><FolderOpen size={16} />选择工作组备份并追加导入</button
       >
     </div>
   {:else}<div class="settings-card">

@@ -25,6 +25,9 @@
   import MaterialDialog from '$lib/features/knowledge/MaterialDialog.svelte';
   import SearchResults from '$lib/features/workspace/SearchResults.svelte';
   import SettingsPage from '$lib/features/workspace/SettingsPage.svelte';
+  import CompactWorkbench from '$lib/features/scripts/CompactWorkbench.svelte';
+  import ReplyDialog from '$lib/features/scripts/ReplyDialog.svelte';
+  import SearchScopePicker from '$lib/features/workspace/SearchScopePicker.svelte';
   import QuickSearch from '$lib/features/workspace/QuickSearch.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
@@ -89,9 +92,13 @@
   function shortcut(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
-      searchInput?.focus();
+      if (app.compact)
+        document
+          .querySelector<HTMLInputElement>('.compact-search input')
+          ?.focus();
+      else searchInput?.focus();
     }
-    if (event.key === 'Escape' && app.query) app.query = '';
+    if (!app.compact && event.key === 'Escape' && app.query) app.query = '';
   }
 </script>
 
@@ -133,6 +140,8 @@
         <span class="nav-caption">工作空间</span>
         <nav>
           {#each navigation as item}{@const Icon = item.icon}<button
+              aria-label={item.name}
+              title={item.name}
               class:active={app.nav === item.id && !app.query}
               aria-current={app.nav === item.id && !app.query
                 ? 'page'
@@ -159,7 +168,11 @@
           </div>
         </div>
       </aside>{/if}
-    <div class="main-shell">
+    <div
+      class="main-shell"
+      class:full-shell-hidden={app.compact}
+      inert={app.compact}
+    >
       <header class="topbar">
         <div class="global-search">
           <Search size={18} /><input
@@ -176,22 +189,8 @@
               onclick={() => (app.query = '')}><X size={15} /></button
             >{:else if !app.compact}<kbd>Ctrl K</kbd>{/if}
         </div>
+        <SearchScopePicker bind:scope={app.searchScope} />
         <div class="topbar-actions">
-          {#if app.compact}<label class="compact-page-picker">
-              <span class="visually-hidden">页面导航</span>
-              <select
-                aria-label="悬浮窗导航"
-                value={app.nav}
-                onchange={(event) => {
-                  if (!navigate(event.currentTarget.value))
-                    event.currentTarget.value = app.nav;
-                }}
-              >
-                {#each navigation as item}<option value={item.id}
-                    >{item.name}</option
-                  >{/each}
-              </select>
-            </label>{/if}
           <label class="language-picker"
             ><span>{app.compact ? '' : '发送语言'}</span><select
               bind:value={app.language}
@@ -217,13 +216,6 @@
         </div>
       </header>
       <main class:workbench-main={app.nav === 'workbench' && !app.query}>
-        {#if app.compact}<div class="compact-heading">
-            <strong
-              >{navigation.find((item) => item.id === app.nav)?.name ||
-                'KnowToSay'}</strong
-            >
-            <span>{native() ? '置顶悬浮窗' : '精简布局预览'}</span>
-          </div>{/if}
         {#if app.query.trim()}<SearchResults />
         {:else}
           {#if !app.compact && app.nav === 'workbench'}<div
@@ -266,6 +258,7 @@
         >
       </footer>
     </div>
+    {#if app.compact}<CompactWorkbench />{/if}
   </div>
 {/if}
 {#if app.error}<div class="notification error" role="alert">
@@ -283,3 +276,5 @@
     >
   </div>{/if}
 {#if app.selectedMaterialId}<MaterialDialog />{/if}
+
+{#if app.replyId}<ReplyDialog />{/if}

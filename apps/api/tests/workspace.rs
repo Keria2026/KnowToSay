@@ -479,12 +479,12 @@ async fn excel_template_import_is_idempotent_and_searches_beyond_preview() {
     let hits = knowtosay::search::search(&state, "KX-987").await.unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].rows[0].row, 1177);
-    let page = knowtosay::search::rows(&state, &long.id, "KX-987", 0)
+    let page = knowtosay::search::rows(&state, &long.id, "KX-987", 0, None)
         .await
         .unwrap();
     assert_eq!(page.rows[0].sheet, "报价表");
     assert_eq!(page.total, 1);
-    let page = knowtosay::search::rows(&state, &long.id, "", 150)
+    let page = knowtosay::search::rows(&state, &long.id, "", 150, None)
         .await
         .unwrap();
     assert_eq!(page.rows[0].row, 151);
@@ -1732,5 +1732,66 @@ async fn foreign_single_canvas_backup_import_upgrades_without_adopting_identity(
             .unwrap()
             .name,
         "原有流程"
+    );
+}
+
+#[tokio::test]
+async fn excel_preview_preserves_original_columns_sheet_selection_and_pagination() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = create_admin(dir.path()).await;
+    let material = binary_material(
+        &state,
+        "grid.xlsx",
+        include_bytes!("../../web/tests/fixtures/sales-grid.xlsx"),
+    )
+    .await;
+    let page = knowtosay::search::rows(&state, &material.id, "", 0, Some("产品资料"))
+        .await
+        .unwrap();
+    assert_eq!(page.sheets, vec!["产品资料", "售后"]);
+    assert_eq!(page.total, 163);
+    assert_eq!(page.rows.len(), 150);
+    assert_eq!(page.column_count, 27);
+    assert_eq!(page.rows[0].row, 3);
+    assert_eq!(&page.rows[0].cells[..4], &["", "", "产品", "韩语回复"]);
+    assert_eq!(page.rows[0].cells[26], "远列");
+    let next = knowtosay::search::rows(&state, &material.id, "", 150, Some("产品资料"))
+        .await
+        .unwrap();
+    assert_eq!(next.rows.len(), 13);
+    assert_eq!(next.rows[0].row, 153);
+    let (_, json) = local(
+        &state,
+        "GET",
+        &format!("/materials/{}/rows?sheet=%E5%94%AE%E5%90%8E", material.id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(json["total"], 1);
+    assert_eq!(json["rows"][0]["row"], 2);
+    assert_eq!(json["rows"][0]["cells"][1], "售后内容");
+    let matches = knowtosay::search::rows(&state, &material.id, "KOREA", 0, None)
+        .await
+        .unwrap();
+    assert_eq!(matches.total, 1);
+    assert_eq!(matches.rows[0].row, 4);
+    let mut stored = material;
+    stored.category = "产品".into();
+    state
+        .put("draft_materials", &stored.id, &stored)
+        .await
+        .unwrap();
+    assert!(
+        knowtosay::search::search_filtered(&state, "KOREA", Some("售后"))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        knowtosay::search::search_filtered(&state, "KOREA", Some("产品"))
+            .await
+            .unwrap()
+            .len(),
+        1
     );
 }

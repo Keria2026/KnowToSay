@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { api, native, copyText } from './api';
+import { globalScope } from './search';
+import type { SearchScope } from './search';
 import { quickCategoryName } from '$lib/utils/scripts';
 import {
   groupOrderKey,
@@ -23,6 +25,9 @@ class WorkspaceStore {
   notice = $state('');
   nav = $state('workbench');
   query = $state('');
+  searchScope = $state<SearchScope>(globalScope());
+  replyId = $state('');
+  materialQuery = $state<string | null>(null);
   selectedId = $state('');
   selectedMaterialId = $state('');
   language = $state('ko');
@@ -260,6 +265,11 @@ class WorkspaceStore {
   }
   select(id: string, reset = false) {
     if (this.nav === 'scripts' && !this.navigate('workbench')) return;
+    this.focusScript(id, reset);
+    this.query = '';
+    this.nav = 'workbench';
+  }
+  focusScript(id: string, reset = false) {
     const node = this.nodes.find((r) => r.node.id === id)?.node;
     const kind = node?.kind ?? 'flow';
     const differentFlow =
@@ -272,8 +282,6 @@ class WorkspaceStore {
       this.history = [...this.history, this.selectedId];
     this.selectedId = id;
     this.browseKind = kind;
-    this.query = '';
-    this.nav = 'workbench';
   }
   back() {
     const previous = this.history.at(-1);

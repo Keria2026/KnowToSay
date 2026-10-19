@@ -16,41 +16,12 @@
     api,
   } from '../workspace/api';
   import { bytes, kindName } from '$lib/utils/scripts';
-  import type { Material, SheetPage } from '$lib/types';
+  import SheetPreview from './SheetPreview.svelte';
+  import type { Material } from '$lib/types';
   let { material, query = '' }: { material: Material; query?: string } =
     $props();
   let url = $state('');
   let failed = $state(false);
-  let sheetPage = $state<SheetPage | null>(null);
-  let rowError = $state('');
-  let offset = $state(0);
-  let lastKey = '';
-  let rows = $derived(sheetPage?.rows || []);
-  $effect(() => {
-    const id = material.id;
-    const q = query;
-    const key = `${id}:${q}`;
-    if (lastKey !== key) {
-      lastKey = key;
-      offset = 0;
-    }
-    const start = offset;
-    let active = true;
-    rowError = '';
-    if (material.kind === 'excel')
-      api<SheetPage>(
-        `/materials/${encodeURIComponent(id)}/rows?q=${encodeURIComponent(q)}&offset=${start}`,
-      )
-        .then((result) => {
-          if (active) sheetPage = result;
-        })
-        .catch((e) => {
-          if (active) rowError = String(e);
-        });
-    return () => {
-      active = false;
-    };
-  });
   $effect(() => {
     const current = material;
     let active = true;
@@ -94,37 +65,7 @@
       {material.text || '暂无正文'}
     </div>
   {:else if material.kind === 'excel'}
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>工作表 / 行</th><th>单元格内容</th></tr></thead><tbody
-          >{#each rows.slice(0, 150) as row}<tr
-              ><th>{row.sheet}<small>第 {row.row} 行</small></th><td
-                >{#each row.cells as cell}<span class="excel-cell"
-                    >{cell || '—'}</span
-                  >{/each}</td
-              ></tr
-            >{/each}</tbody
-        >
-      </table>
-    </div>
-    {#if rowError}<p class="field-help" role="alert">{rowError}</p>{:else}<p
-        class="field-help"
-      >
-        共 {sheetPage?.total ?? 0} 个{query ? '匹配' : '非空'}行，当前显示第 {rows.length
-          ? offset + 1
-          : 0}–{offset + rows.length} 行。
-      </p>
-      <div class="button-row">
-        <button
-          class="button secondary"
-          disabled={offset === 0}
-          onclick={() => (offset = Math.max(0, offset - 150))}>上一页</button
-        ><button
-          class="button secondary"
-          disabled={offset + rows.length >= (sheetPage?.total ?? 0)}
-          onclick={() => (offset += 150)}>下一页</button
-        >
-      </div>{/if}
+    {#key material.id}<SheetPreview materialId={material.id} {query} />{/key}
   {:else}<div class="empty small">
       <FileText size={40} />
       <p>导出文件后在本机应用中打开。</p>

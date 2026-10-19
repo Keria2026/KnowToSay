@@ -462,22 +462,26 @@ pub struct SearchQuery {
     pub q: String,
     #[serde(default)]
     pub offset: usize,
+    pub sheet: Option<String>,
+    pub category: Option<String>,
 }
-#[utoipa::path(get,path="/api/v1/search/materials",params(("q"=String,Query)),responses((status=200,body=Vec<MaterialSearchResult>)))]
+#[utoipa::path(get,path="/api/v1/search/materials",params(("q"=String,Query),("category"=Option<String>,Query)),responses((status=200,body=Vec<MaterialSearchResult>)))]
 pub async fn search_materials(
     State(state): State<AppState>,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<Vec<MaterialSearchResult>>> {
-    Ok(Json(crate::search::search(&state, &q.q).await?))
+    Ok(Json(
+        crate::search::search_filtered(&state, &q.q, q.category.as_deref()).await?,
+    ))
 }
-#[utoipa::path(get,path="/api/v1/materials/{id}/rows",params(("id"=String,Path),("q"=Option<String>,Query),("offset"=Option<usize>,Query)),responses((status=200,body=SheetPage)))]
+#[utoipa::path(get,path="/api/v1/materials/{id}/rows",params(("id"=String,Path),("q"=Option<String>,Query),("offset"=Option<usize>,Query),("sheet"=Option<String>,Query)),responses((status=200,body=SheetPage)))]
 pub async fn material_rows(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<SheetPage>> {
     Ok(Json(
-        crate::search::rows(&state, &id, &q.q, q.offset).await?,
+        crate::search::rows(&state, &id, &q.q, q.offset, q.sheet.as_deref()).await?,
     ))
 }
 

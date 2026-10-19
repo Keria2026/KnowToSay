@@ -130,15 +130,34 @@ async fn reveal_material(
 }
 
 #[tauri::command]
-async fn window_mode(window: tauri::WebviewWindow, compact: bool) -> Result<(), String> {
+async fn window_mode(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    compact: bool,
+) -> Result<(), String> {
+    let control = app.state::<desktop_support::DesktopController>();
+    let mut saved = control.main_bounds.lock().map_err(|e| e.to_string())?;
+    if compact {
+        *saved = Some(desktop_support::MainWindowBounds {
+            size: window.inner_size().map_err(|e| e.to_string())?,
+            position: window.outer_position().map_err(|e| e.to_string())?,
+            maximized: window.is_maximized().map_err(|e| e.to_string())?,
+        });
+        window.unmaximize().map_err(|e| e.to_string())?;
+        window
+            .set_size(desktop_support::fitted_size(&window, (420.0, 740.0)))
+            .map_err(|e| e.to_string())?;
+    } else if let Some(bounds) = saved.take() {
+        window.set_size(bounds.size).map_err(|e| e.to_string())?;
+        window
+            .set_position(bounds.position)
+            .map_err(|e| e.to_string())?;
+        if bounds.maximized {
+            window.maximize().map_err(|e| e.to_string())?;
+        }
+    }
     window
         .set_always_on_top(compact)
-        .map_err(|e| e.to_string())?;
-    window
-        .set_size(tauri::LogicalSize::new(
-            if compact { 400.0 } else { 1360.0 },
-            if compact { 740.0 } else { 860.0 },
-        ))
         .map_err(|e| e.to_string())?;
     Ok(())
 }

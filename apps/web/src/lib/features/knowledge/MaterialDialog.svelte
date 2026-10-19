@@ -13,7 +13,10 @@
 <dialog
   bind:this={dialog}
   class="material-dialog"
-  onclose={() => (app.selectedMaterialId = '')}
+  onclose={() => {
+    app.selectedMaterialId = '';
+    app.materialQuery = null;
+  }}
 >
   <header class="dialog-header">
     <div>
@@ -26,7 +29,10 @@
       onclick={() => dialog.close()}><X size={21} /></button
     >
   </header>
-  {#if material}<MaterialPreview {material} query={app.query} />{:else}<p>
+  {#if material}<MaterialPreview
+      {material}
+      query={app.materialQuery ?? app.query}
+    />{:else}<p>
       管理员已移除此素材。个人话术保持不变，你可以重新选择关联素材。
     </p>{/if}
 </dialog>

@@ -9,12 +9,20 @@ use std::sync::{
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+pub struct MainWindowBounds {
+    pub size: tauri::PhysicalSize<u32>,
+    pub position: tauri::PhysicalPosition<i32>,
+    pub maximized: bool,
+}
+
 pub struct DesktopController {
     pub preferences: Mutex<DesktopPreferences>,
     pub shortcut_registered: AtomicBool,
     pub warning: Mutex<Option<String>>,
     pub previous_window: AtomicIsize,
     pub search_mode: Mutex<SearchPanelMode>,
+    pub search_expanded: AtomicBool,
+    pub main_bounds: Mutex<Option<MainWindowBounds>>,
 }
 
 pub fn show_main(app: &tauri::AppHandle) {
@@ -50,6 +58,22 @@ pub fn toggle_search(app: &tauri::AppHandle) {
     }
 }
 
+pub fn fitted_size(window: &tauri::WebviewWindow, target: (f64, f64)) -> tauri::LogicalSize<f64> {
+    let screen = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|m| {
+            (
+                m.size().width as f64 / m.scale_factor(),
+                m.size().height as f64 / m.scale_factor(),
+            )
+        })
+        .unwrap_or((1920.0, 1080.0));
+    let (width, height) = knowtosay::desktop_behavior::fit_window_size(target, screen);
+    tauri::LogicalSize::new(width, height)
+}
+
 fn show_panel(app: &tauri::AppHandle, mode: SearchPanelMode) {
     let Some(window) = app.get_webview_window("search") else {
         return;
@@ -71,13 +95,21 @@ fn show_panel(app: &tauri::AppHandle, mode: SearchPanelMode) {
         #[cfg(not(windows))]
         let _ = &control;
     }
-    let _ = window.set_size(tauri::LogicalSize::new(
-        720.0,
-        if mode == SearchPanelMode::Quick {
-            560.0
-        } else {
-            140.0
-        },
+    if let Some(control) = app.try_state::<DesktopController>() {
+        control
+            .search_expanded
+            .store(mode == SearchPanelMode::Quick, Ordering::Relaxed);
+    }
+    let _ = window.set_size(fitted_size(
+        &window,
+        (
+            720.0,
+            if mode == SearchPanelMode::Quick {
+                560.0
+            } else {
+                190.0
+            },
+        ),
     ));
     #[cfg(windows)]
     if let Some(rect) = cursor_monitor() {
@@ -128,10 +160,16 @@ pub fn close_search(app: tauri::AppHandle) {
 #[tauri::command]
 pub fn resize_search(app: tauri::AppHandle, expanded: bool) -> Result<(), String> {
     let window = app.get_webview_window("search").ok_or("搜索窗口未创建")?;
+    let control = app.state::<DesktopController>();
+    if control.search_expanded.swap(expanded, Ordering::Relaxed) == expanded {
+        return Ok(());
+    }
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let current_width = window.inner_size().map_err(|e| e.to_string())?.width as f64 / scale;
     window
-        .set_size(tauri::LogicalSize::new(
-            720.0,
-            if expanded { 560.0 } else { 140.0 },
+        .set_size(fitted_size(
+            &window,
+            (current_width, if expanded { 560.0 } else { 190.0 }),
         ))
         .map_err(|e| e.to_string())
 }
@@ -228,6 +266,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         warning: Mutex::new(warning),
         previous_window: AtomicIsize::new(0),
         search_mode: Mutex::new(SearchPanelMode::Search),
+        search_expanded: AtomicBool::new(false),
+        main_bounds: Mutex::new(None),
     });
     WebviewWindowBuilder::new(
         app,
@@ -236,11 +276,11 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     )
     .title("KnowToSay 搜索")
     .decorations(false)
-    .resizable(false)
+    .resizable(true)
     .always_on_top(true)
     .skip_taskbar(true)
     .visible(false)
-    .inner_size(720., 140.)
+    .inner_size(720., 190.)
     .min_inner_size(340., 90.)
     .build()?;
     use tauri::{

@@ -19,6 +19,8 @@
     languageName,
     kindName,
     scriptKindName,
+    replyVariables,
+    quickCategoryName,
   } from '$lib/utils/scripts';
   import type {
     NodeRecord,
@@ -27,6 +29,10 @@
     SearchPanelMode,
   } from '$lib/types';
   import './quick-search.css';
+  import SearchScopePicker from './SearchScopePicker.svelte';
+  import { scopedScripts, scopedMaterials, globalScope } from './search';
+  import ScriptResult from '../scripts/ScriptResult.svelte';
+  import MaterialResult from '../knowledge/MaterialResult.svelte';
   import BilingualReplies from '../scripts/BilingualReplies.svelte';
   let query = $state('');
   let mode = $state<SearchPanelMode>('search');
@@ -40,7 +46,12 @@
   let copyHides = true;
   let quickScripts = $derived(
     searchScripts(
-      app.nodes.filter((r) => r.node.kind === 'quick'),
+      app.nodes.filter(
+        (r) =>
+          r.node.kind === 'quick' &&
+          (!app.quickCategory ||
+            quickCategoryName(r.node) === app.quickCategory),
+      ),
       query,
     ),
   );
@@ -48,39 +59,33 @@
     mode === 'quick'
       ? quickScripts.slice(0, visibleLimit)
       : query.trim()
-        ? searchScripts(app.nodes, query).slice(0, 8)
+        ? searchScripts(scopedScripts(app.nodes, app.searchScope), query).slice(
+            0,
+            50,
+          )
         : [],
   );
   let preview = $derived(
     selected ? replyPreview(selected.node, app.language, values) : null,
   );
   let variables = $derived(
-    selected
-      ? [
-          ...new Map(
-            [
-              ...selected.node.variables,
-              ...[
-                ...(selected.node.replies[app.language] || '').matchAll(
-                  /\{([^{}]+)\}/g,
-                ),
-              ].map(
-                (m) =>
-                  selected!.node.variables.find((v) => v.name === m[1]) || {
-                    name: m[1],
-                    label: m[1],
-                    required: true,
-                  },
-              ),
-            ].map((v) => [v.name, v]),
-          ).values(),
-        ]
-      : [],
+    selected ? replyVariables(selected.node, app.language) : [],
   );
   $effect(() => {
+    app.searchScope;
+    selected = null;
+    activeIndex = 0;
+  });
+  $effect(() => {
     const q = query.trim();
+    const scope = app.searchScope;
     let active = true;
-    if (mode === 'quick' || !q || !app.workspace) {
+    if (
+      mode === 'quick' ||
+      !q ||
+      !app.workspace ||
+      !['all', 'library'].includes(scope.area)
+    ) {
       materials = [];
       searching = false;
       return;
@@ -88,10 +93,10 @@
     searching = true;
     const timer = setTimeout(() => {
       api<MaterialSearchResult[]>(
-        `/search/materials?q=${encodeURIComponent(q)}`,
+        `/search/materials?q=${encodeURIComponent(q)}${scope.area === 'library' && scope.group ? `&category=${encodeURIComponent(scope.group)}` : ''}`,
       )
         .then((result) => {
-          if (active) materials = result.slice(0, 8);
+          if (active) materials = scopedMaterials(result, scope).slice(0, 50);
         })
         .catch((e) => {
           if (active) app.error = String(e);
@@ -120,6 +125,8 @@
       'quick-search-open',
       async (event) => {
         mode = event.payload;
+        app.searchScope = globalScope();
+        app.quickCategory = '';
         visibleLimit = 50;
         query = '';
         selected = null;
@@ -176,6 +183,8 @@
       ).catch((e) => (app.error = String(e)));
     } else {
       mode = next;
+      app.searchScope = globalScope();
+      app.quickCategory = '';
       query = '';
       selected = null;
       visibleLimit = 50;
@@ -199,8 +208,12 @@
     }
     if (event.key === 'Enter' && count) {
       event.preventDefault();
-      if (activeIndex < scripts.length) select(scripts[activeIndex]);
-      else
+      if (activeIndex < scripts.length) {
+        const record = scripts[activeIndex];
+        const ready = replyPreview(record.node, app.language, {});
+        if (ready.ready) void copyReply(ready.text);
+        else select(record);
+      } else
         app.selectedMaterialId =
           materials[activeIndex - scripts.length].material.id;
     }
@@ -232,6 +245,7 @@
       ><X size={18} /></button
     >
   </header>
+  {#if mode === 'search'}<SearchScopePicker bind:scope={app.searchScope} />{/if}
   {#if selected}
     <section class="quick-search-detail">
       <div class="section-title">
@@ -288,53 +302,21 @@
         >全库搜索<ArrowUpRight size={14} /></button
       >
     </div>
-    <div class="quick-reply-table-scroll">
-      <table class="quick-reply-table">
-        <thead
-          ><tr><th>客户问题 / 回复</th><th>对应话术</th><th>操作</th></tr
-          ></thead
-        >
-        <tbody
-          >{#each scripts as record, i}{@const rowPreview = replyPreview(
-              record.node,
-              app.language,
-              {},
-            )}
-            <tr class:active={activeIndex === i}
-              ><td
-                ><button class="text-button" onclick={() => select(record)}
-                  >{record.node.title}</button
-                ><small>{record.node.question}</small
-                >{#if record.source === 'personal'}<span
-                    class="source-label personal">个人版本</span
-                  >{/if}</td
-              ><td><BilingualReplies node={record.node} /></td><td
-                ><button
-                  class="button primary"
-                  disabled={!!app.busy}
-                  aria-label={`${rowPreview.ready ? '复制' : '查看'}${record.node.title}`}
-                  onclick={() =>
-                    rowPreview.ready
-                      ? copyReply(rowPreview.text)
-                      : select(record)}
-                  >{rowPreview.ready
-                    ? '复制'
-                    : rowPreview.languageMissing
-                      ? '查看'
-                      : '填写变量'}</button
-                ></td
-              ></tr
-            >
-          {/each}</tbody
-        >
-      </table>
+    <div class="quick-reply-list">
+      <select aria-label="快捷回复分类" bind:value={app.quickCategory}
+        ><option value="">全部分类</option
+        >{#each app.quickGroups as group}<option value={group.id}
+            >{group.name}</option
+          >{/each}</select
+      >
+      {#each scripts as record, i (record.node.id)}<ScriptResult
+          {record}
+          active={activeIndex === i}
+          oncopy={copyReply}
+          ondetail={() => select(record)}
+        />{/each}
       {#if !scripts.length}<div class="empty small">
-          <MessageSquare size={30} />
-          <p>
-            {query.trim()
-              ? '没有匹配的快捷话术'
-              : '请先在“话术与流程 → 快捷话术”中添加客户问答。'}
-          </p>
+          <p>没有匹配的快捷话术。</p>
         </div>{/if}
       {#if quickScripts.length > visibleLimit}<button
           class="text-button"
@@ -358,38 +340,21 @@
   {:else}
     <div class="quick-search-results">
       {#if scripts.length}<div class="section-label">
-          话术
-        </div>{/if}{#each scripts as record, i}<button
-          class:active={activeIndex === i}
-          class="quick-result"
-          onclick={() => select(record)}
-          ><MessageSquare size={18} /><span
-            ><strong>{record.node.title}</strong><BilingualReplies
-              node={record.node}
-            /></span
-          ><span class="source-label"
-            >{scriptKindName(record.node.kind)} · {record.source === 'personal'
-              ? '个人'
-              : '官方'}</span
-          ></button
-        >{/each}{#if materials.length}<div class="section-label">
-          素材与表格
-        </div>{/if}{#each materials as hit, i}<button
-          class:active={activeIndex === scripts.length + i}
-          class="quick-result"
-          onclick={() => {
-            app.query = query;
-            app.selectedMaterialId = hit.material.id;
-          }}
-          ><FileText size={18} /><span
-            ><strong>{hit.material.name}</strong><small
-              >{hit.rows.length
-                ? `${hit.rows[0].sheet} · 第 ${hit.rows[0].row} 行：${hit.rows[0].cells.join(' ｜ ')}`
-                : hit.material.notes || hit.material.category}</small
-            ></span
-          ><span class="source-label">{kindName(hit.material.kind)}</span
-          ></button
-        >{/each}{#if searching}<p class="field-help">
+          话术 · 可直接复制
+        </div>{/if}
+      {#each scripts as record, i (record.node.id)}<ScriptResult
+          {record}
+          active={activeIndex === i}
+          oncopy={copyReply}
+          ondetail={() => select(record)}
+        />{/each}
+      {#if materials.length}<div class="section-label">素材与表格</div>{/if}
+      {#each materials as hit, i (hit.material.id)}<MaterialResult
+          {hit}
+          {query}
+          active={activeIndex === scripts.length + i}
+        />{/each}
+      {#if searching}<p class="field-help">
           正在搜索本地知识库…
         </p>{:else if !scripts.length && !materials.length}<div
           class="empty small"
@@ -400,7 +365,7 @@
     </div>
     <footer class="quick-search-hint">
       <span
-        >{scripts.length + materials.length} 个结果（最多展示各类 8 项）</span
+        >{scripts.length + materials.length} 个结果（最多展示各类 50 项）</span
       ><button class="text-button" onclick={() => openMain()}
         >打开完整工作台<ArrowUpRight size={13} /></button
       >

@@ -30,6 +30,24 @@ export function replyPreview(
   };
 }
 
+export function replyVariables(node: ScriptNode, language: string) {
+  return [
+    ...new Map(
+      [
+        ...node.variables,
+        ...[...(node.replies[language] || '').matchAll(/\{([^{}]+)\}/g)].map(
+          (m) =>
+            node.variables.find((v) => v.name === m[1]) || {
+              name: m[1],
+              label: m[1],
+              required: true,
+            },
+        ),
+      ].map((v) => [v.name, v]),
+    ).values(),
+  ];
+}
+
 export function newNode(
   kind: ScriptKind = 'flow',
   flowId: string | null = null,

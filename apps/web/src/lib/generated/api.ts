@@ -474,7 +474,10 @@ export interface components {
         /** @enum {string} */
         SearchPanelMode: "search" | "quick";
         SheetPage: {
+            /** Format: int32 */
+            columnCount: number;
             rows: components["schemas"]["SheetRow"][];
+            sheets: string[];
             /** Format: int32 */
             total: number;
         };
@@ -709,6 +712,7 @@ export interface operations {
             query?: {
                 q?: string;
                 offset?: number;
+                sheet?: string;
             };
             header?: never;
             path: {
@@ -937,6 +941,7 @@ export interface operations {
         parameters: {
             query: {
                 q: string;
+                category?: string;
             };
             header?: never;
             path?: never;

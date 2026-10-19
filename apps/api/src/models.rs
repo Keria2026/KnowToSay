@@ -123,6 +123,8 @@ pub struct MaterialSearchResult {
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SheetPage {
+    pub sheets: Vec<String>,
+    pub column_count: u32,
     pub rows: Vec<SheetRow>,
     pub total: u32,
 }
