@@ -31,7 +31,26 @@ jobs:
       - name: Install browser for UI regression tests
         run: bunx playwright install chromium
       - name: Test workflow and packaged frontend routes
-        run: bun run test:e2e
+        shell: pwsh
+        run: |
+          bun run test:e2e 2>&1 | Tee-Object -FilePath ui-tests.log
+          $testExitCode = $LASTEXITCODE
+          if ($testExitCode -ne 0) {
+            $details = (Get-Content ui-tests.log -Tail 60) -join "`n"
+            $details = $details.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Browser regression failed::$details"
+            exit $testExitCode
+          }
+      - name: Upload browser regression diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KnowToSay-UI-test-diagnostics
+          path: |
+            ui-tests.log
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build Windows x64 NSIS installer
         run: bun run desktop:build --target x86_64-pc-windows-msvc --bundles nsis --ci
       - name: Upload Windows installer
