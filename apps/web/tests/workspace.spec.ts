@@ -84,6 +84,12 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await page.getByLabel('分支条件 / 客户回答',{exact:true}).fill('需要优惠');
   await page.getByRole('button',{name:'确认分支',exact:true}).click();
   await expect(page.getByLabel('问题 / 内部说明',{exact:true})).toHaveValue('确认产品需求（图表编辑测试）');
+  await page.getByRole('button', {name:'全屏查看流程', exact:true}).click();
+  const editorFullscreen = page.getByRole('dialog', {name:'全屏流程查看'});
+  await expect(editorFullscreen.getByRole('complementary', {name:'节点详情'})).toContainText('确认产品需求（图表编辑测试）');
+  await editorFullscreen.getByRole('button', {name:'退出全屏', exact:true}).click();
+  await expect(page.getByLabel('问题 / 内部说明',{exact:true})).toHaveValue('确认产品需求（图表编辑测试）');
+
   await page.getByRole('button',{name:'保存流程',exact:true}).click();
   await expect(page.getByRole('button',{name:'保存流程',exact:true})).toBeDisabled();
   const savedGraph = await (await page.request.get('/api/v1/snapshot')).json();
@@ -103,6 +109,32 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await overview.locator('.svelte-flow__node[data-id="demo-no"]').click();
   await expect(page.getByRole('heading',{name:'尚未用餐',exact:true})).toBeVisible();
   await page.screenshot({path:testInfo.outputPath('flow-workbench.png'),fullPage:true});
+  const activeNav = page.locator('.sidebar nav [aria-current="page"]');
+  await expect(activeNav).toHaveText('销售工作台');
+  await expect(activeNav).toHaveCSS('font-weight', '600');
+  await expect(page.locator('.sidebar .brand-mark')).toHaveAttribute('src', '/icon.svg');
+  await page.getByRole('button', {name:'全屏查看流程', exact:true}).click();
+  const fullscreen = page.getByRole('dialog', {name:'全屏流程查看'});
+  await expect(fullscreen).toBeVisible();
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+  const fullscreenGraph = fullscreen.getByRole('region', {name:'全屏流程图'});
+  await expect(fullscreenGraph.locator('.svelte-flow__node')).toHaveCount(5);
+  await fullscreenGraph.locator('.svelte-flow__node[data-id="demo-product"]').click();
+  const inspector = fullscreen.getByRole('complementary', {name:'节点详情'});
+  await expect(inspector.getByRole('heading', {name:'介绍产品', exact:true})).toBeVisible();
+  await expect(inspector).toContainText('中文');
+  await expect(inspector).toContainText('한국어');
+  await page.screenshot({path:testInfo.outputPath('flow-fullscreen.png')});
+  await fullscreen.getByRole('button', {name:'退出全屏', exact:true}).click();
+  await expect(fullscreen).not.toBeVisible();
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+  // Browsing the graph does not change the working conversation.
+  await expect(page.getByRole('heading',{name:'尚未用餐',exact:true})).toBeVisible();
+  await page.getByRole('button', {name:'全屏查看流程', exact:true}).click();
+  await expect(fullscreen).toBeVisible();
+  await fullscreen.press('Escape');
+  await expect(fullscreen).not.toBeVisible();
+
   await page.getByRole('button',{name:'知识库',exact:true}).click();
   await page.getByRole('button',{name:'新建分类',exact:true}).click();
   await page.getByLabel('分类名称',{exact:true}).fill('配送与售后');

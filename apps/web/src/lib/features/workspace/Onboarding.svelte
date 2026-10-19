@@ -50,7 +50,7 @@
 
 <div class="onboarding">
   <div class="welcome-art">
-    <div class="brand-mark large">K<span></span></div>
+    <img class="brand-mark large" src="/icon.svg" alt="KnowToSay" />
     <p class="eyebrow">KNOWLEDGE INTO CONVERSATION</p>
     <h1>把知识，<br />变成恰好的回答。</h1>
     <p class="welcome-sub">

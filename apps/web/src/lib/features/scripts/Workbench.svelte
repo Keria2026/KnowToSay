@@ -26,9 +26,11 @@
   } from '$lib/utils/scripts';
   import type { Material, Snapshot, ScriptKind } from '$lib/types';
   import FlowCanvas from './FlowCanvas.svelte';
+  import FlowFullscreen from './FlowFullscreen.svelte';
   import ScriptNavigation from './ScriptNavigation.svelte';
   let node = $derived(app.current?.node);
   let showFlow = $state(false);
+  let fullscreenFlow = $state(false);
   let completeFlow = $derived(
     app.nodes.filter(
       (r) => r.node.kind !== 'quick' && r.node.flowId === app.activeFlowId,
@@ -160,9 +162,14 @@
         <div class="graph-toolbar">
           <span
             ><GitBranch size={17} />完整流程 · {completeFlow.length} 个步骤</span
-          ><button class="text-button" onclick={() => (showFlow = false)}
-            >收起流程图</button
           >
+          <div class="inline-actions">
+            <button class="text-button" onclick={() => (fullscreenFlow = true)}
+              >全屏查看流程</button
+            ><button class="text-button" onclick={() => (showFlow = false)}
+              >收起流程图</button
+            >
+          </div>
         </div>
         <p class="graph-help">
           高亮为当前话术。点击步骤查看回复，滚轮缩放，拖动空白处平移。
@@ -372,4 +379,14 @@
           </div>{/if}
       </aside>{/if}
   </div>
+{/if}
+
+{#if fullscreenFlow}
+  <FlowFullscreen
+    records={completeFlow}
+    selectedId={node?.id || ''}
+    name={app.flows.find((flow) => flow.id === app.activeFlowId)?.name ||
+      '完整流程'}
+    onclose={() => (fullscreenFlow = false)}
+  />
 {/if}

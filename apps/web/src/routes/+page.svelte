@@ -104,12 +104,12 @@
 <svelte:window onkeydown={shortcut} />
 {#if quickSearchMode}<QuickSearch />
 {:else if app.loading}<div class="boot-screen">
-    <div class="brand-mark">K<span></span></div>
+    <img class="brand-mark" src="/icon.svg" alt="KnowToSay" />
     <LoaderCircle class="spin" size={22} />
     <p>正在打开本地资料库…</p>
   </div>
 {:else if !app.data}<div class="boot-screen">
-    <div class="brand-mark">K<span></span></div>
+    <img class="brand-mark" src="/icon.svg" alt="KnowToSay" />
     <h1>连接本地资料库</h1>
     <p class="muted">请启动 KnowToSay 本地服务后重试。</p>
     <button class="button primary" onclick={() => app.start()}
@@ -127,13 +127,16 @@
             event.preventDefault();
             navigate('workbench');
           }}
-          ><div class="brand-mark">K<span></span></div>
+          ><img class="brand-mark" src="/icon.svg" alt="KnowToSay" />
           <div>KnowToSay<small>让知识成为好回答</small></div></a
         >
         <span class="nav-caption">工作空间</span>
         <nav>
           {#each navigation as item}{@const Icon = item.icon}<button
               class:active={app.nav === item.id && !app.query}
+              aria-current={app.nav === item.id && !app.query
+                ? 'page'
+                : undefined}
               onclick={() => navigate(item.id)}
               ><Icon size={19} strokeWidth={1.65} /><span>{item.name}</span
               >{#if item.id === 'scripts'}<small>{app.nodes.length}</small

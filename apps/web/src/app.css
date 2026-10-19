@@ -405,42 +405,16 @@ form {
   pointer-events: none;
 }
 .brand-mark {
-  background: var(--blue);
-  color: #fff;
-  border-radius: var(--radius-sm);
-  width: 37px;
-  height: 37px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  font-size: 23px;
-  font-weight: 600;
-  font-family: system-ui;
-  letter-spacing: -0.08em;
-  padding-right: 3px;
-}
-.brand-mark > span {
-  position: absolute;
-  right: 6px;
-  bottom: 7px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: white;
+  display: block;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 .brand-mark.large {
-  width: 54px;
-  height: 54px;
-  border-radius: var(--radius-sm);
-  font-size: 34px;
+  width: 64px;
+  height: 64px;
   margin-bottom: 60px;
-}
-.brand-mark.large > span {
-  right: 9px;
-  bottom: 10px;
-  width: 6px;
-  height: 6px;
 }
 .app-shell {
   display: grid;
@@ -496,12 +470,16 @@ form {
   padding: 12px 13px;
   border-radius: 8px;
   font-size: var(--text-caption);
-  color: var(--ink-soft);
+  color: var(--muted);
   text-align: left;
 }
 .sidebar nav button.active {
-  background: var(--pearl);
+  background: color-mix(in srgb, var(--blue) 10%, var(--canvas));
   color: var(--blue);
+  font-weight: 600;
+}
+.sidebar nav button.active small {
+  color: inherit;
 }
 .sidebar nav button small {
   margin-left: auto;
@@ -2888,4 +2866,119 @@ summary {
 .script-navigation .named-flow-bar {
   border-bottom: 0;
   min-height: 72px;
+}
+
+/* Flow viewing uses the same surfaces, hairlines and single blue accent. */
+.flow-fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--parchment);
+  overflow: hidden;
+}
+.flow-fullscreen[open] {
+  display: flex;
+  flex-direction: column;
+}
+.flow-fullscreen::backdrop {
+  background: var(--parchment);
+}
+.fullscreen-flow-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--soft-line);
+}
+.fullscreen-flow-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.fullscreen-flow-toolbar strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.fullscreen-flow-toolbar span {
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+.fullscreen-flow-toolbar button {
+  flex-shrink: 0;
+}
+.fullscreen-flow-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.fullscreen-flow-canvas {
+  position: absolute;
+  inset: 0 400px 0 0;
+}
+.flow-node-inspector {
+  position: absolute;
+  inset: var(--space-md) var(--space-md) var(--space-md) auto;
+  width: 366px;
+  padding: var(--space-lg);
+  background: var(--canvas);
+  border: 1px solid var(--soft-line);
+  border-radius: var(--radius);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+.flow-node-inspector h2 {
+  font-size: 24px;
+  margin: var(--space-md) 0;
+}
+.flow-node-inspector .question {
+  font-size: var(--text-body);
+}
+.flow-inspector-reply {
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--soft-line);
+}
+.flow-inspector-reply p {
+  white-space: pre-wrap;
+}
+.flow-inspector-language {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  font-size: var(--text-caption);
+}
+.fullscreen-flow-error {
+  margin: 0;
+  padding: var(--space-xs) var(--space-lg);
+  font-size: var(--text-caption);
+}
+@media (max-width: 640px) {
+  .fullscreen-flow-canvas {
+    inset: 0 0 48%;
+  }
+  .flow-node-inspector {
+    inset: 52% var(--space-xs) var(--space-xs);
+    width: auto;
+    padding: var(--space-md);
+  }
+  .fullscreen-flow-toolbar {
+    padding: var(--space-xs) var(--space-sm);
+  }
+  .fullscreen-flow-toolbar span {
+    display: none;
+  }
 }

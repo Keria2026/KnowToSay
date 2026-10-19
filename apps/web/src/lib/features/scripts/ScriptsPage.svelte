@@ -29,6 +29,8 @@
     SaveScripts,
   } from '$lib/types';
   import FlowCanvas from './FlowCanvas.svelte';
+  import FlowFullscreen from './FlowFullscreen.svelte';
+  let fullscreenFlow = $state(false);
   import ScriptNavigation from './ScriptNavigation.svelte';
   import BilingualReplies from './BilingualReplies.svelte';
   import { layoutFlow } from './flow';
@@ -306,6 +308,11 @@
             条连接</span
           >
           <div class="button-row">
+            <button
+              class="text-button"
+              disabled={!flowNodes.length}
+              onclick={() => (fullscreenFlow = true)}>全屏查看流程</button
+            >
             <button class="text-button" disabled={!!app.busy} onclick={arrange}
               ><LayoutGrid size={16} />自动排列</button
             >
@@ -670,3 +677,15 @@
     </form>
   {/if}
 </dialog>
+
+{#if fullscreenFlow}
+  <FlowFullscreen
+    records={flowNodes}
+    selectedId={app.editorId || flowNodes[0]?.node.id || ''}
+    name={app.flows.find((flow) => flow.id === app.activeFlowId)?.name ||
+      '完整流程'}
+    oncontinue={select}
+    continueLabel="返回编辑此步骤"
+    onclose={() => (fullscreenFlow = false)}
+  />
+{/if}
