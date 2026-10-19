@@ -24,6 +24,13 @@ class WorkspaceStore {
   compact = $state(false);
   progress = $state<SyncStatus | null>(null);
   editorId = $state('');
+  flowId = $state('');
+  flows = $derived(this.data?.flows ?? []);
+  activeFlowId = $derived(
+    this.flows.some((f) => f.id === this.flowId)
+      ? this.flowId
+      : this.flows[0]?.id || '',
+  );
   editorKind = $state<ScriptKind>('flow');
   browseKind = $state<ScriptKind>('flow');
   editorDirty = $state(false);
@@ -50,14 +57,22 @@ class WorkspaceStore {
       !this.selectedId ||
       !data.nodes.some((n) => n.node.id === this.selectedId)
     ) {
+      const candidates =
+        this.flowId &&
+        data.flows.some((f) => f.id === this.flowId) &&
+        this.browseKind === 'flow'
+          ? data.nodes.filter((r) => r.node.flowId === this.flowId)
+          : data.nodes;
       this.selectedId =
-        data.nodes.find((n) => n.node.isEntry)?.node.id ||
-        data.nodes[0]?.node.id ||
+        candidates.find((r) => r.node.isEntry)?.node.id ||
+        candidates[0]?.node.id ||
         '';
       this.browseKind =
         data.nodes.find((n) => n.node.id === this.selectedId)?.node.kind ??
         'flow';
     }
+    const selectedFlowId = this.current?.node.flowId;
+    if (selectedFlowId) this.flowId = selectedFlowId;
   }
   async start() {
     try {
@@ -103,14 +118,38 @@ class WorkspaceStore {
       this.freshNode = null;
       this.editorId = '';
     }
+    if (nav === 'scripts' && this.nav !== 'scripts') {
+      this.editorKind = this.browseKind;
+      this.editorId =
+        (this.current?.node.kind ?? 'flow') === this.browseKind
+          ? this.selectedId
+          : '';
+      this.freshNode = null;
+    }
+    if (
+      nav === 'workbench' &&
+      this.browseKind === 'flow' &&
+      this.current?.node.flowId !== this.activeFlowId
+    ) {
+      const steps = this.nodes.filter(
+        (r) => r.node.kind !== 'quick' && r.node.flowId === this.activeFlowId,
+      );
+      this.selectedId =
+        steps.find((r) => r.node.isEntry)?.node.id || steps[0]?.node.id || '';
+      this.history = [];
+    }
     this.nav = nav;
     this.query = '';
     return true;
   }
   select(id: string, reset = false) {
     if (this.nav === 'scripts' && !this.navigate('workbench')) return;
-    const kind = this.nodes.find((r) => r.node.id === id)?.node.kind ?? 'flow';
-    if (reset || kind === 'quick' || kind !== this.browseKind)
+    const node = this.nodes.find((r) => r.node.id === id)?.node;
+    const kind = node?.kind ?? 'flow';
+    const differentFlow =
+      kind !== 'quick' && node?.flowId !== this.activeFlowId;
+    if (node?.flowId) this.flowId = node.flowId;
+    if (reset || differentFlow || kind === 'quick' || kind !== this.browseKind)
       this.history = [];
     else if (this.selectedId && this.selectedId !== id)
       this.history = [...this.history, this.selectedId];
@@ -123,12 +162,16 @@ class WorkspaceStore {
     const previous = this.history.at(-1);
     if (previous) {
       this.selectedId = previous;
+      const flowId = this.current?.node.flowId;
+      if (flowId) this.flowId = flowId;
       this.history = this.history.slice(0, -1);
     }
   }
   edit(record?: NodeRecord) {
     this.editorKind = (record || this.current)?.node.kind ?? 'flow';
     this.editorId = record?.node.id || this.current?.node.id || '';
+    const flowId = (record || this.current)?.node.flowId;
+    if (flowId) this.flowId = flowId;
     this.freshNode = null;
     this.nav = 'scripts';
     this.query = '';

@@ -9,6 +9,46 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/flows/{id}": {
+      "put": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "save_flow",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Flow"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/group": {
       "post": {
         "tags": [
@@ -658,6 +698,21 @@
           }
         }
       },
+      "Flow": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "ImportScripts": {
         "type": "object",
         "required": [
@@ -666,6 +721,12 @@
           "preview"
         ],
         "properties": {
+          "flowId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "mapping": {
             "type": "object",
             "additionalProperties": {
@@ -705,6 +766,12 @@
           "materials"
         ],
         "properties": {
+          "flows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Flow"
+            }
+          },
           "formatVersion": {
             "type": "integer",
             "format": "int32",
@@ -923,6 +990,12 @@
           "category": {
             "type": "string"
           },
+          "flowId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -1026,12 +1099,19 @@
         "type": "object",
         "required": [
           "nodes",
+          "flows",
           "materials",
           "draftDirty"
         ],
         "properties": {
           "draftDirty": {
             "type": "boolean"
+          },
+          "flows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Flow"
+            }
           },
           "materialCategories": {
             "type": "array",

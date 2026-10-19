@@ -24,12 +24,13 @@
     SaveScripts,
   } from '$lib/types';
   import FlowCanvas from './FlowCanvas.svelte';
+  import FlowTabs from './FlowTabs.svelte';
   import BilingualReplies from './BilingualReplies.svelte';
   import { layoutFlow } from './flow';
   type Point = { x: number; y: number };
   let drafts = $state<Record<string, ScriptNode>>({});
-  let languageCode = $state('');
   let quickQuery = $state('');
+  let layoutRevision = $state(0);
   let originals = $derived(new Map(app.nodes.map((r) => [r.node.id, r])));
   let records = $derived<NodeRecord[]>([
     ...app.nodes.map((r) => ({ ...r, node: drafts[r.node.id] || r.node })),
@@ -51,7 +52,10 @@
   let current = $derived(originals.get(app.editorId));
   let quickNodes = $derived(records.filter((r) => r.node.kind === 'quick'));
   let filteredQuick = $derived(searchScripts(quickNodes, quickQuery));
-  let flowNodes = $derived(records.filter((r) => r.node.kind !== 'quick'));
+  let allFlowNodes = $derived(records.filter((r) => r.node.kind !== 'quick'));
+  let flowNodes = $derived(
+    allFlowNodes.filter((r) => r.node.flowId === app.activeFlowId),
+  );
   let connectionCount = $derived(
     flowNodes.reduce((sum, r) => sum + r.node.branches.length, 0),
   );
@@ -61,6 +65,8 @@
   $effect(() => {
     if (app.freshNode) {
       const node = app.freshNode;
+      if (node.kind !== 'quick' && !node.flowId)
+        node.flowId = app.activeFlowId || null;
       drafts[node.id] = JSON.parse(JSON.stringify(node));
       app.editorId = node.id;
       app.freshNode = null;
@@ -80,9 +86,16 @@
   }
   function select(id: string) {
     app.editorId = id;
+    const flowId = records.find((r) => r.node.id === id)?.node.flowId;
+    if (flowId) app.flowId = flowId;
+  }
+  function switchFlow(id: string) {
+    app.flowId = id;
+    app.editorId = '';
   }
   function add() {
-    const node = newNode(app.editorKind);
+    if (app.editorKind === 'flow' && !app.activeFlowId) return;
+    const node = newNode(app.editorKind, app.activeFlowId);
     node.isEntry = app.editorKind === 'flow' && !flowNodes.length;
     drafts[node.id] = node;
     app.editorId = node.id;
@@ -106,7 +119,13 @@
       app.error = '请先移除此话术的流程分支和指向它的连接，再改为快捷话术';
       return;
     }
+    if (next === 'flow' && !app.activeFlowId) {
+      input.value = draft.kind || 'flow';
+      app.error = '请先新建流程，再转换话术类型';
+      return;
+    }
     draft.kind = next;
+    draft.flowId = next === 'flow' ? app.activeFlowId : null;
     app.editorKind = next;
     if (next === 'quick') {
       draft.isEntry = false;
@@ -149,6 +168,7 @@
     moveNodes(
       [...layoutFlow(flowNodes)].map(([id, position]) => ({ id, position })),
     );
+    layoutRevision++;
   }
   let branchDialog: HTMLDialogElement;
   let pendingBranch = $state<{
@@ -185,10 +205,9 @@
     if (!source) return;
     let target = pendingBranch.target;
     if (pendingBranch.position) {
-      const node = newNode('flow');
+      const node = newNode('flow', source.flowId ?? null);
       node.title = pendingBranch.title.trim();
       if (!node.title) return;
-      node.category = source.category;
       node.position = pendingBranch.position;
       drafts[node.id] = node;
       target = node.id;
@@ -214,15 +233,6 @@
         (b) => b.id !== pendingBranch!.branchId,
       );
     branchDialog.close();
-  }
-  function addLanguage() {
-    const code = languageCode.trim();
-    if (!draft || !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(code)) {
-      app.error = '请输入有效语言代码，例如 ko、en 或 zh-CN';
-      return;
-    }
-    if (!(code in draft.replies)) draft.replies[code] = '';
-    languageCode = '';
   }
   function toggleMaterial(id: string, selected: boolean) {
     if (draft)
@@ -266,7 +276,11 @@
           class="button secondary"
           onclick={() => app.navigate('library')}
           ><FileSpreadsheet size={16} />从 Excel 导入</button
-        >{/if}<button class="button primary" disabled={!!app.busy} onclick={add}
+        >{/if}<button
+        class="button primary"
+        disabled={!!app.busy ||
+          (app.editorKind === 'flow' && !app.activeFlowId)}
+        onclick={add}
         ><Plus size={17} />{app.editorKind === 'quick'
           ? '新建快捷话术'
           : '新建话术'}</button
@@ -280,7 +294,8 @@
       aria-selected={app.editorKind === 'flow'}
       class:active={app.editorKind === 'flow'}
       onclick={() => switchKind('flow')}
-      ><GitBranch size={17} />流程话术 <span>{flowNodes.length}</span></button
+      ><GitBranch size={17} />流程话术
+      <span>{allFlowNodes.length}</span></button
     >
     <button
       role="tab"
@@ -300,6 +315,11 @@
   <div class="studio-layout">
     {#if app.editorKind === 'flow'}
       <div class="graph-panel">
+        <FlowTabs
+          selectedId={app.activeFlowId}
+          onselect={switchFlow}
+          editable
+        />
         <div class="graph-toolbar">
           <span
             ><GitBranch size={16} />{flowNodes.length} 个步骤 · {connectionCount}
@@ -319,28 +339,42 @@
         <p class="graph-help">
           拖动节点排版；从右侧圆点拉箭头到已有节点或空白处新增分支。点击连线可修改条件。
         </p>
-        {#if flowNodes.length}<div class="graph-canvas">
-            <FlowCanvas
-              records={flowNodes}
-              selectedId={app.editorId}
-              editable={!app.busy}
-              onselect={select}
-              onpositions={moveNodes}
-              onconnect={(source, target) => connect(source, target)}
-              onblankconnect={(source, position) =>
-                connect(source, '', position)}
-              onedge={(source, id) => {
-                const branch = flowNodes
-                  .find((r) => r.node.id === source)
-                  ?.node.branches.find((b) => b.id === id);
-                if (branch) void connect(source, branch.targetId, null, id);
-              }}
-            />
+        {#if flowNodes.length}<div
+            class="graph-canvas"
+            role="tabpanel"
+            aria-label={app.flows.find((f) => f.id === app.activeFlowId)?.name}
+          >
+            {#key `${app.activeFlowId}:${layoutRevision}`}
+              <FlowCanvas
+                records={flowNodes}
+                selectedId={app.editorId}
+                editable={!app.busy}
+                onselect={select}
+                onpositions={moveNodes}
+                onconnect={(source, target) => connect(source, target)}
+                onblankconnect={(source, position) =>
+                  connect(source, '', position)}
+                onedge={(source, id) => {
+                  const branch = flowNodes
+                    .find((r) => r.node.id === source)
+                    ?.node.branches.find((b) => b.id === id);
+                  if (branch) void connect(source, branch.targetId, null, id);
+                }}
+              />
+            {/key}
           </div>{:else}<div class="empty">
             <GitBranch size={38} />
-            <h3>建立你的第一条沟通路径</h3>
-            <p>新建话术后，拉出箭头连接到下一步。</p>
-            <button class="button primary" onclick={add}>新建话术</button>
+            <h3>
+              {app.activeFlowId ? '这个流程还没有话术' : '先新建一条流程'}
+            </h3>
+            <p>
+              {app.activeFlowId
+                ? '新建话术后，拉出箭头连接到下一步。'
+                : '点击上方“新建流程”，为不同沟通场景建立独立页面。'}
+            </p>
+            {#if app.activeFlowId}<button class="button primary" onclick={add}
+                >新建话术</button
+              >{/if}
           </div>{/if}
       </div>
     {:else}
@@ -411,16 +445,18 @@
                 rows="2"
               ></textarea></label
             >
-            <label
-              >分类<input
-                bind:value={draft.category}
-                list="script-categories"
-              /><datalist id="script-categories"
-                >{#each [...new Set(app.nodes.map((r) => r.node.category))] as category}<option
-                    value={category}
-                  ></option>{/each}</datalist
-              ></label
-            >
+            {#if draft.kind === 'quick'}
+              <label
+                >分类<input
+                  bind:value={draft.category}
+                  list="script-categories"
+                /><datalist id="script-categories"
+                  >{#each [...new Set(app.nodes.map((r) => r.node.category))] as category}<option
+                      value={category}
+                    ></option>{/each}</datalist
+                ></label
+              >
+            {/if}
             <label
               >话术类型<select
                 value={draft.kind ?? 'flow'}
@@ -439,25 +475,14 @@
               >
             {/if}
             <div class="editor-section">
-              <h3>多语言回复</h3>
-              {#each Object.keys(draft.replies) as language}<label
+              <h3>话术内容</h3>
+              {#each ['zh-CN', 'ko', ...Object.keys(draft.replies).filter((key) => !['zh-CN', 'ko'].includes(key))] as language}<label
                   >{languageName(language)}<textarea
                     bind:value={draft.replies[language]}
                     rows="4"
                     placeholder={'输入完整回复，可使用 {变量名}'}
                   ></textarea></label
                 >{/each}
-              <div class="inline-field">
-                <input
-                  bind:value={languageCode}
-                  placeholder="语言代码，如 en"
-                  aria-label="新增语言代码"
-                /><button
-                  type="button"
-                  class="button secondary"
-                  onclick={addLanguage}>添加</button
-                >
-              </div>
             </div>
             <div class="editor-section">
               <div class="section-title">

@@ -30,13 +30,17 @@ export function replyPreview(
   };
 }
 
-export function newNode(kind: ScriptKind = 'flow'): ScriptNode {
+export function newNode(
+  kind: ScriptKind = 'flow',
+  flowId: string | null = null,
+): ScriptNode {
   return {
     id: crypto.randomUUID(),
     title: '新话术',
     question: '',
-    category: '未分类',
+    category: kind === 'quick' ? '未分类' : '',
     kind,
+    flowId: kind === 'flow' ? flowId : null,
     isEntry: false,
     replies: { 'zh-CN': '', ko: '' },
     variables: [],
@@ -72,7 +76,7 @@ export function searchScripts(nodes: NodeRecord[], query: string) {
     [
       node.title,
       node.question,
-      node.category,
+      node.kind === 'quick' ? node.category : '',
       ...Object.values(node.replies),
     ].some((s) => s.toLocaleLowerCase().includes(q)),
   );

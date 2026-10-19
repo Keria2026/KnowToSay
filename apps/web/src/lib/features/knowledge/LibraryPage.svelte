@@ -15,6 +15,7 @@
     Check,
     FolderPlus,
   } from 'lucide-svelte';
+  import { languageName } from '$lib/utils/scripts';
   import { app } from '../workspace/store.svelte';
   import {
     api,
@@ -35,6 +36,7 @@
   let tags = $state('');
   let source = $state<Material | null>(null);
   let mapping = $state<Record<string, string>>({});
+  let importFlowId = $state('');
   let preview = $state<ScriptNode[]>([]);
   let previewSignature = $state('');
   let visible = $derived(
@@ -52,8 +54,8 @@
     ['id', '唯一 ID（必填）'],
     ['title', '题目（必填）'],
     ['question', '问题 / 说明'],
-    ['category', '分类'],
-    ['kind', '话术类型（flow / quick）'],
+    ['category', '快捷话术分类'],
+    ['kind', '话术类型'],
     ['isEntry', '流程入口'],
     ['reply:zh-CN', '中文回复'],
     ['reply:ko', '韩语回复'],
@@ -144,6 +146,7 @@
   }
   async function openImport(material: Material) {
     source = material;
+    importFlowId = app.activeFlowId;
     preview = [];
     previewSignature = '';
     const header = material.rows[0]?.cells || [];
@@ -160,10 +163,11 @@
     await app.task(commit ? '导入话术' : '校验表格', async () => {
       preview = await api<ScriptNode[]>('/scripts/import', 'POST', {
         materialId: source!.id,
+        flowId: importFlowId || null,
         mapping: cleanMapping(),
         preview: !commit,
       });
-      previewSignature = JSON.stringify(mapping);
+      previewSignature = JSON.stringify({ mapping, importFlowId });
       if (commit) {
         await app.refresh();
         importDialog.close();
@@ -343,6 +347,16 @@
     ID 用于重复导入时更新同一条话术。缺少 ID
     时请先在原表添加稳定唯一值；不会按标题或行号猜测身份。
   </p>
+  <label
+    >流程话术导入到<select bind:value={importFlowId} aria-label="导入所属流程">
+      <option value="">请选择流程（仅导入快捷话术时可留空）</option>
+      {#each app.flows as flow}<option value={flow.id}>{flow.name}</option
+        >{/each}
+    </select></label
+  >
+  {#if !app.flows.length}<p class="field-help">
+      请先在“话术与流程”中新建流程，再导入流程话术。
+    </p>{/if}
   <div class="mapping-grid">
     {#each fields as [key, label]}<label
         >{label}<select bind:value={mapping[key]}
@@ -354,8 +368,7 @@
       >{/each}
   </div>
   <p class="field-help">
-    额外语言使用 reply:语言代码 列名；variables、branches、materialIds 为 JSON
-    数组。分支连接也可导入后在流程编辑器补充。
+    中文与韩语回复分别对应模板中的回复列。分支连接也可导入后在流程编辑器补充。
   </p>
   <a class="text-button" href="/script-template.xlsx" download
     >下载标准 Excel 模板<Download size={14} /></a
@@ -369,7 +382,7 @@
       class="button primary"
       disabled={!!app.busy ||
         !preview.length ||
-        previewSignature !== JSON.stringify(mapping)}
+        previewSignature !== JSON.stringify({ mapping, importFlowId })}
       onclick={() => parseImport(true)}
       >确认导入 {preview.length || ''} 条</button
     >
@@ -380,7 +393,7 @@
         <thead><tr><th>ID</th><th>题目</th><th>语言</th></tr></thead><tbody
           >{#each preview.slice(0, 20) as node}<tr
               ><td>{node.id}</td><td>{node.title}</td><td
-                >{Object.keys(node.replies).join('、')}</td
+                >{Object.keys(node.replies).map(languageName).join('、')}</td
               ></tr
             >{/each}</tbody
         >

@@ -16,6 +16,10 @@ struct BackupData {
     workspace: Workspace,
     draft_nodes: Vec<ScriptNode>,
     official_nodes: Vec<ScriptNode>,
+    #[serde(default)]
+    draft_flows: Vec<Flow>,
+    #[serde(default)]
+    official_flows: Vec<Flow>,
     draft_materials: Vec<Material>,
     official_materials: Vec<Material>,
     #[serde(default)]
@@ -102,10 +106,12 @@ pub async fn backup(state: &AppState, requested: Option<String>) -> Result<FileR
         .fetch_all(&state.pool)
         .await?;
     let data = BackupData {
-        format_version: 1,
+        format_version: 2,
         workspace,
         draft_nodes: state.list("draft_nodes").await?,
         official_nodes: state.list("official_nodes").await?,
+        draft_flows: state.list("draft_flows").await?,
+        official_flows: state.list("official_flows").await?,
         draft_materials: state.list("draft_materials").await?,
         official_materials: state.list("official_materials").await?,
         draft_material_categories: state.list("draft_material_categories").await?,
@@ -166,14 +172,16 @@ pub async fn import_package(state: &AppState, directory: &str) -> Result<()> {
         .map_err(|_| Error::conflict("请等待当前同步完成"))?;
     let path = PathBuf::from(directory);
     let bytes = tokio::fs::read(path.join("manifest.json")).await?;
-    let manifest: Manifest = serde_json::from_slice(&bytes)?;
-    if manifest.format_version != 1
+    let mut manifest: Manifest = serde_json::from_slice(&bytes)?;
+    manifest.upgrade();
+    if manifest.format_version != 2
         || manifest.version < 1
         || uuid::Uuid::parse_str(&manifest.group_id).is_err()
     {
         return Err(Error::invalid("资料包无效"));
     }
     validate_manifest_content(&manifest.nodes, &manifest.materials)?;
+    crate::db::validate_flow_membership(&manifest.nodes, &manifest.flows)?;
     let address = if let Some(w) = state.workspace().await? {
         if w.role != Role::Sales || w.group_id != manifest.group_id {
             return Err(Error::conflict("资料包不属于当前业务员工作组"));
@@ -198,9 +206,17 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
         return Err(Error::denied());
     }
     let path = PathBuf::from(directory);
-    let data: BackupData =
+    let mut data: BackupData =
         serde_json::from_slice(&tokio::fs::read(path.join("backup.json")).await?)?;
-    if data.format_version != 1
+    if data.format_version == 1 {
+        upgrade_single_flow(&mut data.draft_nodes, &mut data.draft_flows);
+        upgrade_single_flow(&mut data.official_nodes, &mut data.official_flows);
+        data.format_version = 2;
+    }
+    for release in &mut data.releases {
+        release.upgrade();
+    }
+    if data.format_version != 2
         || data.workspace.role != Role::Admin
         || uuid::Uuid::parse_str(&data.workspace.group_id).is_err()
     {
@@ -213,6 +229,8 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
         return Err(Error::conflict("备份属于其他工作组，不能覆盖当前工作组"));
     }
     validate_manifest_content(&data.official_nodes, &data.official_materials)?;
+    crate::db::validate_flow_membership(&data.official_nodes, &data.official_flows)?;
+    crate::db::validate_flow_membership(&data.draft_nodes, &data.draft_flows)?;
     for n in &data.draft_nodes {
         crate::db::validate_node(n)?;
     }
@@ -223,6 +241,7 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
             return Err(Error::invalid("备份中含其他工作组版本"));
         }
         validate_manifest_content(&r.nodes, &r.materials)?;
+        crate::db::validate_flow_membership(&r.nodes, &r.flows)?;
         all.extend(r.materials.clone());
     }
     copy_materials(&path.join("blobs"), &state.root.join("blobs"), &all).await?;
@@ -236,11 +255,12 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
         .max(current_max.unwrap_or(0))
         + 1;
     let manifest = Manifest {
-        format_version: 1,
+        format_version: 2,
         group_id: workspace.group_id.clone(),
         group_name: workspace.name.clone(),
         version: workspace.version,
         nodes: data.official_nodes.clone(),
+        flows: data.official_flows.clone(),
         materials: data.official_materials.clone(),
         material_categories: data.official_material_categories.clone(),
     };
@@ -288,6 +308,21 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
             sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?)"))
                 .bind(id)
                 .bind(json)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+    for (table, flows) in [
+        ("draft_flows", &data.draft_flows),
+        ("official_flows", &data.official_flows),
+    ] {
+        sqlx::query(&format!("DELETE FROM {table}"))
+            .execute(&mut *tx)
+            .await?;
+        for flow in flows {
+            sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?)"))
+                .bind(&flow.id)
+                .bind(serde_json::to_string(flow)?)
                 .execute(&mut *tx)
                 .await?;
         }

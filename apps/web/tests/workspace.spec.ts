@@ -61,17 +61,18 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await page.getByRole('button',{name:'话术与流程',exact:false}).click();
   const graph = page.getByRole('region',{name:'话术流程图',exact:true});
   await expect(graph.locator('.svelte-flow__node')).toHaveCount(4);
+  await graph.scrollIntoViewIfNeeded();
   const product = graph.locator('.svelte-flow__node[data-id="demo-product"]');
   await product.click();
   await page.getByLabel('问题 / 内部说明',{exact:true}).fill('确认产品需求（图表编辑测试）');
   const productBox = await product.boundingBox();
   await drag(page, product, {x:productBox!.x + productBox!.width / 2 - 45, y:productBox!.y + productBox!.height / 2 + 70});
-  await drag(page, product.locator('.source'), graph.locator('.svelte-flow__node[data-id="demo-yes"] .target'));
+  await drag(page, product.locator('.source[data-handleid="new"]'), graph.locator('.svelte-flow__node[data-id="demo-yes"] .target'));
   await page.getByLabel('分支条件 / 客户回答',{exact:true}).fill('再确认用餐');
   await page.getByRole('button',{name:'确认分支',exact:true}).click();
   await expect(graph.getByText('再确认用餐',{exact:true})).toBeVisible();
   const canvas = await graph.boundingBox();
-  await drag(page, product.locator('.source'), {x:canvas!.x + canvas!.width - 95,y:canvas!.y + canvas!.height - 130});
+  await drag(page, product.locator('.source[data-handleid="new"]'), {x:canvas!.x + canvas!.width - 95,y:canvas!.y + canvas!.height - 130});
   await page.getByLabel('分支条件 / 客户回答',{exact:true}).fill('查看优惠');
   await page.getByLabel('子话术题目',{exact:true}).fill('优惠说明');
   await page.getByRole('button',{name:'确认分支',exact:true}).click();
@@ -209,5 +210,100 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   await page.screenshot({path:testInfo.outputPath('quick-search.png'),fullPage:true});
   await page.getByRole('button',{name:'在工作台打开'}).click();
   await expect(page.getByRole('heading',{name:'开场问候',exact:true})).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('多流程标签保留编辑、独立排列与分支归属', async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const initial = await (await page.request.get('/api/v1/snapshot')).json();
+  if (!initial.workspace) {
+    await page.request.post('/api/v1/group', { headers: {'x-knowtosay-local':'1'}, data: {name:'多流程验收'} });
+    await page.request.post('/api/v1/demo', { headers: {'x-knowtosay-local':'1'} });
+  }
+  await page.goto('/');
+  await page.getByRole('button', { name: '话术与流程', exact: false }).click();
+  await page.getByRole('button', { name: '新建流程', exact: true }).click();
+  await page.getByLabel('流程名称', { exact: true }).fill('首次咨询');
+  await page.getByRole('button', { name: '保存流程名称', exact: true }).click();
+  await expect(page.getByRole('tab', { name: '首次咨询', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: '新建话术', exact: true }).first().click();
+  await page.getByLabel('题目', { exact: true }).fill('中文咨询入口');
+  await expect(page.getByLabel('分类', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('新增语言代码')).toHaveCount(0);
+  await page.getByLabel('简体中文', { exact: true }).fill('请先了解客户的具体需求。');
+  await page.getByLabel('한국어 · 韩语', { exact: true }).fill('고객님의 요구 사항을 확인하겠습니다.');
+  await page.getByRole('tab', { name: '销售入门（示例）', exact: true }).click();
+  await expect(page.getByRole('button', { name: '保存流程', exact: true })).toBeEnabled();
+  await page.getByRole('tab', { name: '首次咨询', exact: true }).click();
+  await page.getByRole('region', { name: '话术流程图', exact: true }).getByText('起点 · 中文咨询入口', { exact: true }).click();
+  await expect(page.getByLabel('题目', { exact: true })).toHaveValue('中文咨询入口');
+  await page.getByRole('button', { name: '保存流程', exact: true }).click();
+  await expect(page.getByRole('button', { name: '保存流程', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '新建流程', exact: true }).click();
+  await page.getByLabel('流程名称', { exact: true }).fill('复购沟通');
+  await page.getByRole('button', { name: '保存流程名称', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '这个流程还没有话术', exact: true })).toBeVisible();
+  const before = await (await page.request.get('/api/v1/snapshot')).json();
+  const flow = before.flows.find((f: {name:string}) => f.name === '首次咨询');
+  const root = before.nodes.find((r: {node:{title:string}}) => r.node.title === '中文咨询入口').node;
+  const id = (suffix: string) => `${flow.id}-${suffix}`;
+  const make = (key: string, title: string, branches: [string,string][] = []) => ({
+    ...root, id: id(key), title, isEntry: false, position: null,
+    branches: branches.map(([label, target]) => ({id:crypto.randomUUID(),label,targetId:id(target)})),
+  });
+  const nodes = [
+    { ...root, branches:[{id:crypto.randomUUID(),label:'了解需求',targetId:id('needs')}] },
+    make('needs', '客户主要需求', [['阴茎短小','small'],['早泄','early'],['硬度咨询','other']]),
+    make('small', '针对阴茎短小的说明', [['继续了解','small-next']]),
+    make('small-next', '阴茎短小后续答复', [['确认','end']]),
+    make('early', '针对早泄的说明', [['继续了解','early-next']]),
+    make('early-next', '早泄后续答复', [['确认','end']]),
+    make('other', '针对硬度的说明', [['确认','end']]),
+    make('end', '确认需求'),
+  ];
+  const saved = await page.request.put('/api/v1/scripts', {headers:{'x-knowtosay-local':'1'},data:{nodes}});
+  expect(saved.ok()).toBe(true);
+  await page.reload();
+  await page.getByRole('button', { name: '话术与流程', exact: false }).click();
+  await page.getByRole('tab', { name: '首次咨询', exact: true }).click();
+  const graph = page.getByRole('region', { name: '话术流程图', exact: true });
+  await expect(graph.locator('.svelte-flow__node')).toHaveCount(8);
+  await page.getByRole('button', { name: '自动排列', exact: true }).click();
+  await page.getByRole('button', { name: '保存流程', exact: true }).click();
+  await expect(page.getByRole('button', { name: '保存流程', exact: true })).toBeDisabled();
+  const snapshot = await (await page.request.get('/api/v1/snapshot')).json();
+  const node = (key: string) => snapshot.nodes.find((r: {node:{id:string}}) => r.node.id === id(key)).node;
+  expect(node('small-next').position.y).toBeLessThan(node('early-next').position.y);
+  expect(node('end').position.x).toBeGreaterThan(node('early-next').position.x);
+  const needs = graph.locator(`.svelte-flow__node[data-id="${id('needs')}"]`);
+  await expect(needs.getByRole('button', { name: '编辑分支：阴茎短小', exact: true })).toBeVisible();
+  const smallHandle = needs.locator(`[data-handleid="${node('needs').branches[0].id}"]`);
+  const earlyHandle = needs.locator(`[data-handleid="${node('needs').branches[1].id}"]`);
+  expect((await smallHandle.boundingBox())!.y).toBeLessThan((await earlyHandle.boundingBox())!.y);
+  const demoBefore = before.nodes.filter((r: {node:{flowId:string}}) => r.node.flowId === 'demo-flow');
+  expect(snapshot.nodes.filter((r: {node:{flowId:string}}) => r.node.flowId === 'demo-flow')).toEqual(demoBefore);
+  await page.screenshot({path:testInfo.outputPath('multi-flow-editor.png'),fullPage:true});
+  await page.getByRole('tab', { name: '复购沟通', exact: true }).click();
+  await expect(graph).toHaveCount(0);
+  await page.getByRole('tab', { name: '首次咨询', exact: true }).click();
+  await expect(graph.locator('.svelte-flow__node')).toHaveCount(8);
+  await page.getByRole('button', { name: '重命名当前流程', exact: true }).click();
+  await page.getByLabel('流程名称', { exact: true }).fill('客户首次咨询');
+  await page.getByRole('button', { name: '保存流程名称', exact: true }).click();
+  await expect(page.getByRole('tab', { name: '客户首次咨询', exact: true })).toHaveAttribute('aria-selected','true');
+  await page.getByRole('button', { name: '销售工作台', exact: false }).click();
+  await page.getByRole('tab', { name: '客户首次咨询', exact: true }).click();
+  await page.getByRole('button', { name: '查看完整流程', exact: true }).click();
+  await expect(page.getByRole('region', { name: '销售工作台完整流程图', exact: true }).locator('.svelte-flow__node')).toHaveCount(8);
+  await page.getByRole('tab', { name: '销售入门（示例）', exact: true }).click();
+  await expect(page.getByRole('region', { name: '销售工作台完整流程图', exact: true }).locator('.svelte-flow__node')).toHaveCount(demoBefore.length);
+  await page.reload();
+  const currentTitle = await page.locator('.conversation-title').innerText();
+  const reloaded = await (await page.request.get('/api/v1/snapshot')).json();
+  const currentFlowId = reloaded.nodes.find((r: {node:{title:string}}) => r.node.title === currentTitle).node.flowId;
+  const currentFlowName = reloaded.flows.find((f: {id:string}) => f.id === currentFlowId).name;
+  await expect(page.getByRole('tab', {name:currentFlowName,exact:true})).toHaveAttribute('aria-selected','true');
   expect(errors).toEqual([]);
 });

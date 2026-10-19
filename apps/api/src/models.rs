@@ -43,6 +43,13 @@ pub struct Position {
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct Flow {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ScriptNode {
     pub id: String,
     pub title: String,
@@ -50,6 +57,8 @@ pub struct ScriptNode {
     pub category: String,
     #[serde(default)]
     pub kind: ScriptKind,
+    #[serde(default)]
+    pub flow_id: Option<String>,
     pub is_entry: bool,
     pub replies: BTreeMap<String, String>,
     pub variables: Vec<Variable>,
@@ -123,6 +132,7 @@ pub struct SheetPage {
 pub struct Snapshot {
     pub workspace: Option<Workspace>,
     pub nodes: Vec<NodeRecord>,
+    pub flows: Vec<Flow>,
     pub materials: Vec<Material>,
     #[serde(default)]
     pub material_categories: Vec<String>,
@@ -137,6 +147,8 @@ pub struct Manifest {
     pub group_name: String,
     pub version: i64,
     pub nodes: Vec<ScriptNode>,
+    #[serde(default)]
+    pub flows: Vec<Flow>,
     pub materials: Vec<Material>,
     #[serde(default)]
     pub material_categories: Vec<String>,
@@ -252,4 +264,29 @@ pub enum SearchPanelMode {
     #[default]
     Search,
     Quick,
+}
+
+/// Upgrade the original single-canvas format without guessing branch ownership.
+pub fn upgrade_single_flow(nodes: &mut [ScriptNode], flows: &mut Vec<Flow>) {
+    let mut legacy = false;
+    for node in nodes {
+        if node.kind == ScriptKind::Flow && node.flow_id.is_none() {
+            node.flow_id = Some("legacy-flow".into());
+            legacy = true;
+        }
+    }
+    if legacy && !flows.iter().any(|f| f.id == "legacy-flow") {
+        flows.push(Flow {
+            id: "legacy-flow".into(),
+            name: "原有流程".into(),
+        });
+    }
+}
+impl Manifest {
+    pub fn upgrade(&mut self) {
+        if self.format_version == 1 {
+            upgrade_single_flow(&mut self.nodes, &mut self.flows);
+            self.format_version = 2;
+        }
+    }
 }

@@ -101,11 +101,13 @@ impl AppState {
             return Ok(Snapshot {
                 workspace: None,
                 nodes: vec![],
+                flows: vec![],
                 materials: vec![],
                 material_categories: vec![],
                 draft_dirty: false,
             });
         };
+        let flows = self.effective_flows(&workspace.role).await?;
         let official = self.list::<ScriptNode>("official_nodes").await?;
         let official_map: BTreeMap<_, _> = official
             .iter()
@@ -130,7 +132,8 @@ impl AppState {
             let n = self.list::<ScriptNode>("draft_nodes").await?;
             let m = self.list::<Material>("draft_materials").await?;
             let categories = self.list::<String>("draft_material_categories").await?;
-            let dirty = n != official
+            let dirty = flows != self.list::<Flow>("official_flows").await?
+                || n != official
                 || m != self.list::<Material>("official_materials").await?
                 || categories != official_categories;
             (n, m, categories, dirty)
@@ -175,6 +178,7 @@ impl AppState {
         Ok(Snapshot {
             workspace: Some(workspace),
             nodes: map.into_values().collect(),
+            flows,
             materials,
             material_categories,
             draft_dirty: dirty,
@@ -203,6 +207,43 @@ impl AppState {
             return Err(Error::conflict("此分类已存在"));
         }
         Ok(())
+    }
+    pub async fn effective_flows(&self, role: &Role) -> Result<Vec<Flow>> {
+        let tables = if *role == Role::Admin {
+            vec!["draft_flows"]
+        } else {
+            vec![
+                "personal_flow_dependencies",
+                "official_flows",
+                "personal_flows",
+            ]
+        };
+        let mut flows = BTreeMap::new();
+        for table in tables {
+            for flow in self.list::<Flow>(table).await? {
+                flows.insert(flow.id.clone(), flow);
+            }
+        }
+        Ok(flows.into_values().collect())
+    }
+    pub async fn save_flow(&self, mut flow: Flow) -> Result<()> {
+        flow.name = flow.name.trim().to_owned();
+        validate_flow(&flow)?;
+        let _guard = self.write.lock().await;
+        let workspace = self.required_workspace().await?;
+        let flows = self.effective_flows(&workspace.role).await?;
+        if flows
+            .iter()
+            .any(|f| f.id != flow.id && f.name.to_lowercase() == flow.name.to_lowercase())
+        {
+            return Err(Error::conflict("已存在同名流程"));
+        }
+        let table = if workspace.role == Role::Admin {
+            "draft_flows"
+        } else {
+            "personal_flows"
+        };
+        self.put(table, &flow.id, &flow).await
     }
     pub async fn save_node(&self, node: ScriptNode) -> Result<()> {
         self.save_nodes(vec![node]).await
@@ -260,8 +301,16 @@ impl AppState {
                 return Err(Error::invalid("流程分支只能连接流程话术，请选择其他下一步"));
             }
         }
+        let flows = self.effective_flows(&w.role).await?;
+        validate_flow_membership(&effective.values().cloned().collect::<Vec<_>>(), &flows)?;
         let mut tx = self.pool.begin().await?;
         if w.role == Role::Sales {
+            for flow in self.list::<Flow>("official_flows").await? {
+                if nodes.iter().any(|n| n.flow_id.as_deref() == Some(&flow.id)) {
+                    sqlx::query("INSERT INTO personal_flow_dependencies(id,json) VALUES(?,?) ON CONFLICT(id) DO NOTHING")
+                        .bind(&flow.id).bind(serde_json::to_string(&flow)?).execute(&mut *tx).await?;
+                }
+            }
             // Keep official dependencies of all changed nodes in the same transaction.
             let official: BTreeMap<_, _> = self
                 .list::<ScriptNode>("official_nodes")
@@ -345,6 +394,25 @@ impl AppState {
                     .await?;
             }
         }
+        let mut retained_flows = BTreeSet::new();
+        for node in self
+            .list::<ScriptNode>("personal_nodes")
+            .await?
+            .into_iter()
+            .chain(self.list::<ScriptNode>("personal_dependencies").await?)
+        {
+            if let Some(flow_id) = node.flow_id {
+                retained_flows.insert(flow_id);
+            }
+        }
+        for flow in self.list::<Flow>("personal_flow_dependencies").await? {
+            if !retained_flows.contains(&flow.id) {
+                sqlx::query("DELETE FROM personal_flow_dependencies WHERE id=?")
+                    .bind(flow.id)
+                    .execute(&self.pool)
+                    .await?;
+            }
+        }
         Ok(())
     }
     pub async fn publish(&self) -> Result<Manifest> {
@@ -353,20 +421,29 @@ impl AppState {
         let nodes = self.list::<ScriptNode>("draft_nodes").await?;
         let materials = self.list::<Material>("draft_materials").await?;
         validate_manifest_content(&nodes, &materials)?;
+        let flows = self.list::<Flow>("draft_flows").await?;
+        validate_flow_membership(&nodes, &flows)?;
         let max: Option<i64> = sqlx::query_scalar("SELECT MAX(version) FROM releases")
             .fetch_one(&self.pool)
             .await?;
         workspace.version = workspace.version.max(max.unwrap_or(0)) + 1;
         let manifest = Manifest {
-            format_version: 1,
+            format_version: 2,
             group_id: workspace.group_id.clone(),
             group_name: workspace.name.clone(),
             version: workspace.version,
             nodes,
+            flows,
             materials,
             material_categories: self.list("draft_material_categories").await?,
         };
         let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM official_flows")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO official_flows SELECT * FROM draft_flows")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM official_nodes")
             .execute(&mut *tx)
             .await?;
@@ -400,10 +477,11 @@ impl AppState {
         Ok(manifest)
     }
     pub async fn apply(&self, manifest: &Manifest, address: &str) -> Result<()> {
-        if manifest.format_version != 1 {
+        if manifest.format_version != 2 {
             return Err(Error::invalid("不支持此资料格式"));
         }
         validate_manifest_content(&manifest.nodes, &manifest.materials)?;
+        validate_flow_membership(&manifest.nodes, &manifest.flows)?;
         let _guard = self.write.lock().await;
         let current = self.workspace().await?;
         if let Some(w) = &current {
@@ -422,6 +500,16 @@ impl AppState {
             admin_address: Some(address.into()),
         };
         let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM official_flows")
+            .execute(&mut *tx)
+            .await?;
+        for flow in &manifest.flows {
+            sqlx::query("INSERT INTO official_flows(id,json) VALUES(?,?)")
+                .bind(&flow.id)
+                .bind(serde_json::to_string(flow)?)
+                .execute(&mut *tx)
+                .await?;
+        }
         sqlx::query("DELETE FROM official_nodes")
             .execute(&mut *tx)
             .await?;
@@ -460,7 +548,11 @@ impl AppState {
 
 fn checked_table(table: &str) -> Result<&str> {
     match table {
-        "official_nodes"
+        "draft_flows"
+        | "official_flows"
+        | "personal_flows"
+        | "personal_flow_dependencies"
+        | "official_nodes"
         | "draft_nodes"
         | "personal_nodes"
         | "personal_dependencies"
@@ -470,6 +562,48 @@ fn checked_table(table: &str) -> Result<&str> {
         | "official_material_categories" => Ok(table),
         _ => Err(Error::invalid("未知数据表")),
     }
+}
+pub fn validate_flow(flow: &Flow) -> Result<()> {
+    if flow.id.is_empty()
+        || flow.id.len() > 100
+        || flow.name.trim().is_empty()
+        || flow.name.chars().count() > 80
+        || flow.name.chars().any(char::is_control)
+    {
+        return Err(Error::invalid("流程需要有效标识和名称，名称最多 80 个字"));
+    }
+    Ok(())
+}
+pub fn validate_flow_membership(nodes: &[ScriptNode], flows: &[Flow]) -> Result<()> {
+    if flows.len() > 10_000 {
+        return Err(Error::invalid("流程数量超过限制"));
+    }
+    let mut ids = BTreeSet::new();
+    for flow in flows {
+        validate_flow(flow)?;
+        if !ids.insert(&flow.id) {
+            return Err(Error::invalid("流程标识重复"));
+        }
+    }
+    let map: BTreeMap<_, _> = nodes.iter().map(|n| (&n.id, n)).collect();
+    for node in nodes {
+        if node.kind == ScriptKind::Quick {
+            if node.flow_id.is_some() {
+                return Err(Error::invalid("快捷话术不属于流程"));
+            }
+            continue;
+        }
+        if node.flow_id.as_ref().is_none_or(|id| !ids.contains(id)) {
+            return Err(Error::invalid("请先选择或新建所属流程"));
+        }
+        if node.branches.iter().any(|b| {
+            map.get(&b.target_id)
+                .is_some_and(|target| target.flow_id != node.flow_id)
+        }) {
+            return Err(Error::invalid("分支只能连接同一流程中的话术"));
+        }
+    }
+    Ok(())
 }
 pub fn validate_node(n: &ScriptNode) -> Result<()> {
     if n.id.is_empty() || n.id.len() > 100 || n.title.trim().is_empty() || n.title.len() > 500 {
