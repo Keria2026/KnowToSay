@@ -44,6 +44,11 @@
     const flows = records.filter((r) => r.node.kind !== 'quick');
     const layout = layoutFlow(flows);
     const ids = new Set(flows.map((r) => r.node.id));
+    const connections = new Set(
+      flows.flatMap(({ node }) =>
+        node.branches.map((b) => JSON.stringify([node.id, b.targetId])),
+      ),
+    );
     nodes = flows.map(({ node, source }) => ({
       id: node.id,
       position: flowPosition(node, layout),
@@ -64,6 +69,7 @@
           target: b.targetId,
           data: {
             branchId: b.id,
+            hasReturn: connections.has(JSON.stringify([b.targetId, node.id])),
             onEdit: editable ? () => onedge?.(node.id, b.id) : undefined,
           },
           label: b.label,

@@ -97,6 +97,7 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
   const overview = page.getByRole('region',{name:'销售工作台完整流程图',exact:true});
   await expect(overview.locator('.svelte-flow__node')).toHaveCount(5);
   await expect(overview.locator('.svelte-flow__node.draggable')).toHaveCount(0);
+  await expect(overview.getByText('需要优惠',{exact:true})).toBeInViewport();
   await overview.locator('.svelte-flow__node[data-id="demo-no"]').click();
   await expect(page.getByRole('heading',{name:'尚未用餐',exact:true})).toBeVisible();
   await page.screenshot({path:testInfo.outputPath('flow-workbench.png'),fullPage:true});

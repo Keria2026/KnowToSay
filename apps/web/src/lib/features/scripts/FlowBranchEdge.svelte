@@ -27,7 +27,10 @@
       targetPosition,
       // Route backward jumps below both steps so their labels do not cover
       // the forward branch between the same two steps.
-      centerY: sourceX >= targetX ? Math.max(sourceY, targetY) + 96 : undefined,
+      centerY:
+        sourceX >= targetX && data?.hasReturn === true
+          ? Math.max(sourceY, targetY) + 96
+          : undefined,
     }),
   );
 </script>
