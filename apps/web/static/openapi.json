@@ -9,6 +9,36 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/backup/import": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "import_backup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/flows/{id}": {
       "put": {
         "tags": [
@@ -35,6 +65,66 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/folders": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "save_folder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Folder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/folders/{id}": {
+      "delete": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "delete_folder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -243,6 +333,14 @@
               "type": "integer",
               "minimum": 0
             }
+          },
+          {
+            "name": "sheet",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -355,6 +453,74 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quick-categories/{name}": {
+      "put": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "rename_quick_category",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateQuickCategory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "delete_quick_category",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -483,6 +649,22 @@
             "name": "q",
             "in": "query",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -689,14 +871,14 @@
         "required": [
           "preferences",
           "shortcutRegistered",
-          "searchMode"
+          "searchLaunchScope"
         ],
         "properties": {
           "preferences": {
             "$ref": "#/components/schemas/DesktopPreferences"
           },
-          "searchMode": {
-            "$ref": "#/components/schemas/SearchPanelMode"
+          "searchLaunchScope": {
+            "$ref": "#/components/schemas/SearchLaunchScope"
           },
           "shortcutRegistered": {
             "type": "boolean"
@@ -751,6 +933,27 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "Folder": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -813,6 +1016,12 @@
               "$ref": "#/components/schemas/Flow"
             }
           },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Folder"
+            }
+          },
           "formatVersion": {
             "type": "integer",
             "format": "int32",
@@ -872,6 +1081,12 @@
           "category": {
             "type": "string"
           },
+          "folderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "hash": {
             "type": [
               "string",
@@ -880,6 +1095,12 @@
           },
           "id": {
             "type": "string"
+          },
+          "imageIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "kind": {
             "type": "string"
@@ -972,6 +1193,31 @@
           "y": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "ReplyOption": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "replies"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "replies": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },
@@ -1080,6 +1326,13 @@
               "type": "string"
             }
           },
+          "replyOptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReplyOption"
+            },
+            "description": "Extra quick replies; the existing replies remain the default answer."
+          },
           "title": {
             "type": "string"
           },
@@ -1091,24 +1344,37 @@
           }
         }
       },
-      "SearchPanelMode": {
+      "SearchLaunchScope": {
         "type": "string",
         "enum": [
-          "search",
+          "all",
           "quick"
         ]
       },
       "SheetPage": {
         "type": "object",
         "required": [
+          "sheets",
+          "columnCount",
           "rows",
           "total"
         ],
         "properties": {
+          "columnCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "rows": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SheetRow"
+            }
+          },
+          "sheets": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "total": {
@@ -1158,6 +1424,18 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Flow"
+            }
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Folder"
+            }
+          },
+          "manageableQuickCategories": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "materialCategories": {

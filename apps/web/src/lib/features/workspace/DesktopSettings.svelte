@@ -3,8 +3,24 @@
   import { invoke } from '@tauri-apps/api/core';
   import { Keyboard, ScanLine } from 'lucide-svelte';
   import { native } from './api';
+  import { shortcutFromKey } from './shortcut';
   import { app } from './store.svelte';
   import type { DesktopStatus } from '$lib/types';
+  let recording = $state(false);
+  function capture(event: KeyboardEvent) {
+    if (!recording) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.key === 'Escape') {
+      recording = false;
+      return;
+    }
+    const shortcut = shortcutFromKey(event);
+    if (shortcut && status) {
+      status.preferences.shortcut = shortcut;
+      recording = false;
+    }
+  }
   let status = $state<DesktopStatus | null>(null);
   onMount(() => {
     if (native())
@@ -32,11 +48,12 @@
   }
 </script>
 
+<svelte:window onkeydowncapture={capture} />
 <div class="settings-card">
   <span class="card-icon"><Keyboard size={24} /></span>
   <h3>托盘与快捷搜索</h3>
   <p class="muted">
-    最小化或关闭工作台后常驻托盘。指定边缘唤出快捷话术回复表，快捷键打开全库搜索，保留原来的话术流程位置。
+    最小化或关闭工作台后常驻托盘。边缘与快捷键唤出同一个搜索栏；边缘默认选中快捷话术，快捷键默认选中全局搜索，可切换流程、快捷话术或知识库范围，保留原来的话术流程位置。
   </p>
   {#if !native()}<p class="field-help">
       这些功能在桌面客户端中启用。可在浏览器预览独立搜索界面。
@@ -48,18 +65,35 @@
       rel="noreferrer">预览独立搜索栏</a
     ><a
       class="button secondary"
-      href="/?quickSearch=1&panel=quick"
+      href="/?quickSearch=1&scope=quick"
       target="_blank"
-      rel="noreferrer">预览快捷话术表</a
+      rel="noreferrer">预览边缘唤出搜索</a
     >{:else if status}<label
       >全局快捷键（留空关闭）<input
         bind:value={status.preferences.shortcut}
         placeholder="Ctrl+Alt+Space"
       /></label
-    >{#if status.warning}<p class="info-note">{status.warning}</p>{/if}
+    >
+    <div class="button-row">
+      <button class="button secondary" onclick={() => (recording = !recording)}
+        >{recording ? '请按新的组合键（Esc 取消）' : '录入快捷键'}</button
+      ><button
+        class="text-button"
+        onclick={() => {
+          if (status) status.preferences.shortcut = 'Ctrl+Alt+Space';
+        }}>恢复默认快捷键</button
+      >
+    </div>
+    <p class="field-help">
+      {status.shortcutRegistered
+        ? '当前系统快捷键已注册'
+        : '系统快捷键尚未启用'}。修改后点击“保存唤出设置”。留空可关闭全局快捷键；Ctrl+K
+      仅用于聚焦当前窗口搜索框。
+    </p>
+    {#if status.warning}<p class="info-note">{status.warning}</p>{/if}
     <div class="desktop-edges">
       <span class="section-label"
-        >工作台已收起时，在哪些边缘停留唤出快捷话术表</span
+        >工作台已收起时，在哪些边缘停留唤出快捷话术搜索</span
       >
       <div class="button-row">
         {#each [['left', '左边缘'], ['right', '右边缘'], ['top', '上边缘'], ['bottom', '下边缘']] as [edge, label]}<label

@@ -11,9 +11,14 @@ use utoipa::OpenApi;
         http::save_node,
         http::save_flow,
         http::create_quick_category,
+        http::rename_quick_category,
+        http::delete_quick_category,
+        http::import_backup,
         http::save_nodes,
         http::import_scripts,
         http::save_material,
+        http::save_folder,
+        http::delete_folder,
         http::create_material_category,
         http::publish,
         http::manifest,
@@ -36,6 +41,7 @@ use utoipa::OpenApi;
         SaveScripts,
         SheetRow,
         Material,
+        Folder,
         CreateMaterialCategory,
         CreateQuickCategory,
         MaterialSearchResult,
@@ -54,7 +60,8 @@ use utoipa::OpenApi;
         http::ImportScripts,
         DesktopPreferences,
         DesktopStatus,
-        SearchPanelMode
+        ReplyOption,
+        SearchLaunchScope
     ))
 )]
 pub struct ApiDoc;

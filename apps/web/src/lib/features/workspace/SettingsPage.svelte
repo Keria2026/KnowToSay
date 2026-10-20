@@ -1,18 +1,34 @@
 <script lang="ts">
-  import {
-    HardDrive,
-    FolderOpen,
-    ShieldCheck,
-    RotateCcw,
-    Copy,
-    Check,
-  } from 'lucide-svelte';
+  import { HardDrive, FolderOpen, RotateCcw, Copy, Check } from 'lucide-svelte';
   import { app } from './store.svelte';
   import { api, chooseDirectory, native } from './api';
   import type { FileResult, Snapshot } from '$lib/types';
+  import SyncSettings from './SyncSettings.svelte';
   import DesktopSettings from './DesktopSettings.svelte';
   let backupDirectory = $state('');
   let restoreDirectory = $state('');
+  let importDirectory = $state('');
+  async function importBackup() {
+    const directory = native() ? await chooseDirectory() : importDirectory;
+    if (native() && !directory) return;
+    if (!directory) {
+      app.error = '请选择备份文件夹';
+      return;
+    }
+    if (
+      !confirm(
+        '将此工作组备份中的草稿资料追加到当前主库？当前资料会保留，导入内容需发布后才同步给业务员。',
+      )
+    )
+      return;
+    await app.task(
+      '正在校验并导入工作组备份',
+      async () => {
+        app.data = await api<Snapshot>('/backup/import', 'POST', { directory });
+      },
+      '已导入到当前主库草稿，请检查后发布',
+    );
+  }
   let result = $state('');
   async function backup() {
     const directory = native() ? await chooseDirectory() : backupDirectory;
@@ -89,10 +105,11 @@
   <div class="page-heading">
     <div>
       <span class="eyebrow">YOUR LOCAL WORKSPACE</span>
-      <h2>工作组与备份</h2>
-      <p class="muted">资料在本地，团队在一起。</p>
+      <h2>设置</h2>
+      <p class="muted">管理发布、同步、工作组和本地备份。</p>
     </div>
   </div>
+  <SyncSettings />
   <div class="settings-card">
     <h3>当前工作组</h3>
     <dl class="workspace-details">
@@ -147,9 +164,9 @@
       </p>
     </div>
     <div class="settings-card">
-      <h3>恢复同一工作组</h3>
+      <h3>用备份替换当前工作组</h3>
       <p class="muted">
-        恢复前检查所有素材，校验失败不替换当前主库。不会接受其他工作组的备份。
+        用于本工作组数据损坏或回退。备份会替换当前草稿和已发布资料，并生成一个新发布版本；恢复前请先备份当前数据。仅接受同一工作组，素材校验失败时保留当前资料。
       </p>
       {#if !native()}<label
           >备份文件夹<input
@@ -159,7 +176,28 @@
         >{/if}<button
         class="button secondary"
         disabled={!!app.busy}
-        onclick={restore}><RotateCcw size={16} />选择备份并恢复</button
+        onclick={restore}><RotateCcw size={16} />选择备份并替换恢复</button
+      >
+    </div>
+    <div class="settings-card">
+      <h3>追加导入其他工作组资料</h3>
+      <p class="muted">
+        将其他管理员备份中的草稿话术、流程、知识库素材和分类追加到自己的主库。当前资料会保留，导入后检查并发布。
+      </p>
+      <p class="field-help">
+        当前工作组名称、管理员身份和已发布版本保持不变。同名流程会自动区分；备份内的连线、素材关联和排版一并导入。
+      </p>
+      {#if !native()}<label
+          >要导入的工作组备份文件夹<input
+            bind:value={importDirectory}
+            placeholder="包含 backup.json 的文件夹绝对路径"
+          /></label
+        >{/if}
+      <button
+        class="button secondary"
+        disabled={!!app.busy}
+        onclick={importBackup}
+        ><FolderOpen size={16} />选择工作组备份并追加导入</button
       >
     </div>
   {:else}<div class="settings-card">

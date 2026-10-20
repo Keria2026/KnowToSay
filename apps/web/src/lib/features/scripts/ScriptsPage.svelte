@@ -29,7 +29,11 @@
     SaveScripts,
   } from '$lib/types';
   import FlowCanvas from './FlowCanvas.svelte';
+  import FlowFullscreen from './FlowFullscreen.svelte';
+  let fullscreenFlow = $state(false);
   import ScriptNavigation from './ScriptNavigation.svelte';
+  import MaterialPicker from '../knowledge/MaterialPicker.svelte';
+  import ReplyEditor from './ReplyEditor.svelte';
   import BilingualReplies from './BilingualReplies.svelte';
   import { layoutFlow } from './flow';
   type Point = { x: number; y: number };
@@ -76,8 +80,12 @@
     if (app.freshNode) {
       const node = app.freshNode;
       if (node.kind === 'quick') node.category = app.activeQuickCategory;
-      if (node.kind !== 'quick' && !node.flowId)
-        node.flowId = app.activeFlowId || null;
+      if (node.kind !== 'quick') {
+        if (!node.flowId) node.flowId = app.activeFlowId || null;
+        node.isEntry = !records.some(
+          (r) => r.node.kind !== 'quick' && r.node.flowId === node.flowId,
+        );
+      }
       drafts[node.id] = JSON.parse(JSON.stringify(node));
       app.editorId = node.id;
       app.freshNode = null;
@@ -109,6 +117,12 @@
     app.quickCategory = name;
     app.editorId = '';
   }
+  function categoryChanged(oldName: string, name: string) {
+    for (const node of Object.values(drafts)) {
+      if (node.kind === 'quick' && quickCategoryName(node) === oldName)
+        node.category = name;
+    }
+  }
   function add() {
     if (app.editorKind === 'flow' && !app.activeFlowId) return;
     const node = newNode(app.editorKind, app.activeFlowId);
@@ -121,35 +135,6 @@
     app.editorKind = kind;
     app.browseKind = kind;
     app.editorId = '';
-  }
-  function changeKind(event: Event) {
-    if (!draft) return;
-    const input = event.currentTarget as HTMLSelectElement;
-    const next = input.value as ScriptKind;
-    if (
-      next === 'quick' &&
-      (draft.branches.length ||
-        records.some((r) =>
-          r.node.branches.some((b) => b.targetId === draft!.id),
-        ))
-    ) {
-      input.value = draft.kind ?? 'flow';
-      app.error = '请先移除此话术的流程分支和指向它的连接，再改为快捷话术';
-      return;
-    }
-    if (next === 'flow' && !app.activeFlowId) {
-      input.value = draft.kind || 'flow';
-      app.error = '请先新建流程，再转换话术类型';
-      return;
-    }
-    draft.kind = next;
-    draft.flowId = next === 'flow' ? app.activeFlowId : null;
-    app.editorKind = next;
-    if (next === 'quick') {
-      draft.category = app.activeQuickCategory;
-      draft.isEntry = false;
-      draft.position = null;
-    }
   }
   async function save() {
     if (!changed.length || app.busy) return;
@@ -253,12 +238,6 @@
       );
     branchDialog.close();
   }
-  function toggleMaterial(id: string, selected: boolean) {
-    if (draft)
-      draft.materialIds = selected
-        ? [...draft.materialIds, id]
-        : draft.materialIds.filter((v) => v !== id);
-  }
   async function remove() {
     if (!draft || !confirm('删除这条话术？请检查其他话术是否仍引用它。'))
       return;
@@ -311,6 +290,7 @@
     onkind={switchKind}
     onflow={switchFlow}
     oncategory={switchCategory}
+    oncategorychange={categoryChanged}
     editable
     flowCount={allFlowNodes.length}
     quickCount={quickNodes.length}
@@ -324,6 +304,11 @@
             条连接</span
           >
           <div class="button-row">
+            <button
+              class="text-button"
+              disabled={!flowNodes.length}
+              onclick={() => (fullscreenFlow = true)}>全屏查看流程</button
+            >
             <button class="text-button" disabled={!!app.busy} onclick={arrange}
               ><LayoutGrid size={16} />自动排列</button
             >
@@ -461,33 +446,9 @@
                 </select></label
               >
             {/if}
-            <label
-              >话术类型<select
-                value={draft.kind ?? 'flow'}
-                onchange={changeKind}
-                ><option value="flow">流程话术</option><option value="quick"
-                  >快捷话术</option
-                ></select
-              ></label
-            >
-            {#if draft.kind !== 'quick'}
-              <label class="check-label"
-                ><input
-                  type="checkbox"
-                  bind:checked={draft.isEntry}
-                />作为流程入口</label
-              >
-            {/if}
-            <div class="editor-section">
-              <h3>话术内容</h3>
-              {#each ['zh-CN', 'ko', ...Object.keys(draft.replies).filter((key) => !['zh-CN', 'ko'].includes(key))] as language}<label
-                  >{languageName(language)}<textarea
-                    bind:value={draft.replies[language]}
-                    rows="4"
-                    placeholder={'输入完整回复，可使用 {变量名}'}
-                  ></textarea></label
-                >{/each}
-            </div>
+            {#key draft.id}<ReplyEditor
+                bind:node={drafts[app.editorId]}
+              />{/key}
             <div class="editor-section">
               <div class="section-title">
                 <h3>变量</h3>
@@ -570,33 +531,9 @@
                     </div>
                   </div>{/each}
               </div>{/if}
-            <div class="editor-section">
-              <h3>关联素材</h3>
-              {#each draft.materialIds.filter((id) => !app.materials.some((m) => m.id === id)) as id}<div
-                  class="removed-material"
-                >
-                  素材已移除<button
-                    type="button"
-                    class="text-button"
-                    onclick={() => toggleMaterial(id, false)}>取消关联</button
-                  >
-                </div>{/each}
-              <div class="material-options">
-                {#each app.materials as material}<label class="check-label"
-                    ><input
-                      type="checkbox"
-                      checked={draft.materialIds.includes(material.id)}
-                      onchange={(event) =>
-                        toggleMaterial(
-                          material.id,
-                          event.currentTarget.checked,
-                        )}
-                    />{material.name}</label
-                  >{/each}{#if !app.materials.length}<p class="field-help">
-                    知识库尚无素材。
-                  </p>{/if}
-              </div>
-            </div>
+            {#key draft.id}<MaterialPicker
+                bind:ids={drafts[app.editorId].materialIds}
+              />{/key}
             {#if current?.official && current.source === 'personal'}<details>
                 <summary>查看当前管理员版本</summary
                 >{#each Object.entries(current.official.replies) as [language, text]}<h4
@@ -705,3 +642,15 @@
     </form>
   {/if}
 </dialog>
+
+{#if fullscreenFlow}
+  <FlowFullscreen
+    records={flowNodes}
+    selectedId={app.editorId || flowNodes[0]?.node.id || ''}
+    name={app.flows.find((flow) => flow.id === app.activeFlowId)?.name ||
+      '完整流程'}
+    oncontinue={select}
+    continueLabel="返回编辑此步骤"
+    onclose={() => (fullscreenFlow = false)}
+  />
+{/if}

@@ -33,9 +33,15 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/scripts", put(save_nodes))
         .route("/api/v1/flows/{id}", put(save_flow))
         .route("/api/v1/quick-categories", post(create_quick_category))
+        .route(
+            "/api/v1/quick-categories/{name}",
+            put(rename_quick_category).delete(delete_quick_category),
+        )
         .route("/api/v1/scripts/{id}/reset", post(reset_node))
         .route("/api/v1/scripts/import", post(import_scripts))
         .route("/api/v1/materials", post(save_material))
+        .route("/api/v1/folders", post(save_folder))
+        .route("/api/v1/folders/{id}", delete(delete_folder))
         .route(
             "/api/v1/material-categories",
             post(create_material_category),
@@ -49,6 +55,7 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/sync/status", get(sync_status))
         .route("/api/v1/demo", post(demo))
         .route("/api/v1/backup", post(create_backup))
+        .route("/api/v1/backup/import", post(import_backup))
         .route("/api/v1/restore", post(restore_backup))
         .route("/api/v1/package/export", post(export_package))
         .route("/api/v1/package/import", post(import_package))
@@ -353,14 +360,66 @@ pub async fn save_material(
         .into_iter()
         .find(|m| m.id == material.id);
     if let Some(old) = old {
-        if old.hash != material.hash || old.size != material.size || old.kind != material.kind {
+        if old.hash != material.hash
+            || (old.hash.is_some() && old.size != material.size)
+            || old.kind != material.kind
+        {
             return Err(Error::invalid("请通过文件导入更新素材文件"));
         }
         material.rows = old.rows;
         material.mime = old.mime;
-    } else if material.hash.is_some() || material.kind != "text" {
+    } else if material.hash.is_some() || !["text", "case"].contains(&material.kind.as_str()) {
         return Err(Error::invalid("文件素材需要通过导入添加"));
     }
+    let materials = state.list::<Material>("draft_materials").await?;
+    if material.kind == "case" {
+        if material.image_ids.is_empty()
+            || material.image_ids.len() > 50
+            || material.text.trim().is_empty()
+        {
+            return Err(Error::invalid("案例需要文案和 1–50 张图片"));
+        }
+        material.size = materials
+            .iter()
+            .filter(|m| material.image_ids.contains(&m.id))
+            .map(|m| m.size)
+            .sum();
+        let mut ids = std::collections::BTreeSet::new();
+        for id in &material.image_ids {
+            if !ids.insert(id) || !materials.iter().any(|m| m.id == *id && m.kind == "image") {
+                return Err(Error::invalid("案例图片不存在、重复或不是图片"));
+            }
+        }
+    } else if !material.image_ids.is_empty() {
+        return Err(Error::invalid("仅案例可以组合图片"));
+    }
+    if material.folder_id.is_none()
+        && !material.category.trim().is_empty()
+        && material.category != "未分类"
+    {
+        let mut folders = state.list::<Folder>("draft_folders").await?;
+        let folder = if let Some(folder) = folders
+            .iter()
+            .find(|f| f.parent_id.is_none() && f.name == material.category.trim())
+        {
+            folder.clone()
+        } else {
+            let folder = Folder {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: material.category.trim().into(),
+                parent_id: None,
+            };
+            folders.push(folder.clone());
+            crate::folders::validate(&folders, &[])?;
+            state.put("draft_folders", &folder.id, &folder).await?;
+            folder
+        };
+        material.folder_id = Some(folder.id);
+    }
+    crate::folders::validate(
+        &state.list::<Folder>("draft_folders").await?,
+        std::slice::from_ref(&material),
+    )?;
     state
         .put("draft_materials", &material.id, &material)
         .await?;
@@ -374,6 +433,26 @@ pub async fn create_quick_category(
     Json(input): Json<CreateQuickCategory>,
 ) -> Result<Json<Snapshot>> {
     state.create_quick_category(&input.name).await?;
+    Ok(Json(state.snapshot().await?))
+}
+
+#[utoipa::path(put,path="/api/v1/quick-categories/{name}",params(("name"=String,Path)),request_body=CreateQuickCategory,responses((status=200,body=Snapshot)))]
+pub async fn rename_quick_category(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(input): Json<CreateQuickCategory>,
+) -> Result<Json<Snapshot>> {
+    state
+        .update_quick_category(&name, Some(&input.name))
+        .await?;
+    Ok(Json(state.snapshot().await?))
+}
+#[utoipa::path(delete,path="/api/v1/quick-categories/{name}",params(("name"=String,Path)),responses((status=200,body=Snapshot)))]
+pub async fn delete_quick_category(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Snapshot>> {
+    state.update_quick_category(&name, None).await?;
     Ok(Json(state.snapshot().await?))
 }
 
@@ -437,22 +516,28 @@ pub struct SearchQuery {
     pub q: String,
     #[serde(default)]
     pub offset: usize,
+    pub sheet: Option<String>,
+    pub category: Option<String>,
+    pub folder: Option<String>,
 }
-#[utoipa::path(get,path="/api/v1/search/materials",params(("q"=String,Query)),responses((status=200,body=Vec<MaterialSearchResult>)))]
+#[utoipa::path(get,path="/api/v1/search/materials",params(("q"=String,Query),("category"=Option<String>,Query),("folder"=Option<String>,Query)),responses((status=200,body=Vec<MaterialSearchResult>)))]
 pub async fn search_materials(
     State(state): State<AppState>,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<Vec<MaterialSearchResult>>> {
-    Ok(Json(crate::search::search(&state, &q.q).await?))
+    Ok(Json(
+        crate::search::search_folder(&state, &q.q, q.category.as_deref(), q.folder.as_deref())
+            .await?,
+    ))
 }
-#[utoipa::path(get,path="/api/v1/materials/{id}/rows",params(("id"=String,Path),("q"=Option<String>,Query),("offset"=Option<usize>,Query)),responses((status=200,body=SheetPage)))]
+#[utoipa::path(get,path="/api/v1/materials/{id}/rows",params(("id"=String,Path),("q"=Option<String>,Query),("offset"=Option<usize>,Query),("sheet"=Option<String>,Query)),responses((status=200,body=SheetPage)))]
 pub async fn material_rows(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<SheetPage>> {
     Ok(Json(
-        crate::search::rows(&state, &id, &q.q, q.offset).await?,
+        crate::search::rows(&state, &id, &q.q, q.offset, q.sheet.as_deref()).await?,
     ))
 }
 
@@ -523,6 +608,14 @@ pub async fn restore_backup(
     backup::restore(&state, &input.directory).await?;
     Ok(Json(state.snapshot().await?))
 }
+#[utoipa::path(post,path="/api/v1/backup/import",request_body=RestoreRequest,responses((status=200,body=Snapshot)))]
+pub async fn import_backup(
+    State(state): State<AppState>,
+    Json(input): Json<RestoreRequest>,
+) -> Result<Json<Snapshot>> {
+    backup::import_as_draft(&state, &input.directory).await?;
+    Ok(Json(state.snapshot().await?))
+}
 pub async fn export_package(
     State(state): State<AppState>,
     Json(input): Json<BackupRequest>,
@@ -553,6 +646,8 @@ pub async fn demo(State(state): State<AppState>) -> Result<Json<Snapshot>> {
         name: "产品介绍（示例）".into(),
         kind: "text".into(),
         category: "产品资料".into(),
+        folder_id: None,
+        image_ids: vec![],
         tags: vec!["示例".into()],
         notes: "这是演示内容，请替换为真实销售资料后再发布。".into(),
         text: "提供客户需要的信息，核对真实型号、价格与服务范围。".into(),
@@ -622,6 +717,7 @@ pub async fn demo(State(state): State<AppState>) -> Result<Json<Snapshot>> {
             flow_id: Some("demo-flow".into()),
             is_entry: id == "demo-start",
             replies: BTreeMap::from([("zh-CN".into(), zh.into()), ("ko".into(), ko.into())]),
+            reply_options: vec![],
             variables,
             branches: branches
                 .into_iter()
@@ -658,5 +754,22 @@ pub async fn import_personal(
     Json(input): Json<RestoreRequest>,
 ) -> Result<Json<Snapshot>> {
     crate::personal::import(&state, &input.directory).await?;
+    Ok(Json(state.snapshot().await?))
+}
+
+#[utoipa::path(post,path="/api/v1/folders",request_body=Folder,responses((status=200,body=Snapshot)))]
+pub async fn save_folder(
+    State(state): State<AppState>,
+    Json(folder): Json<Folder>,
+) -> Result<Json<Snapshot>> {
+    state.save_folder(folder).await?;
+    Ok(Json(state.snapshot().await?))
+}
+#[utoipa::path(delete,path="/api/v1/folders/{id}",params(("id"=String,Path)),responses((status=200,body=Snapshot)))]
+pub async fn delete_folder(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Snapshot>> {
+    state.delete_folder(&id).await?;
     Ok(Json(state.snapshot().await?))
 }

@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { api, native, copyText } from './api';
-import { quickCategoryName } from '$lib/utils/scripts';
+import { globalScope } from './search';
+import type { SearchScope } from './search';
+import { quickCategoryName, replyChoices } from '$lib/utils/scripts';
 import {
   groupOrderKey,
   readGroupOrder,
@@ -23,6 +25,10 @@ class WorkspaceStore {
   notice = $state('');
   nav = $state('workbench');
   query = $state('');
+  searchScope = $state<SearchScope>(globalScope());
+  replyId = $state('');
+  replyOptionId = $state('');
+  materialQuery = $state<string | null>(null);
   selectedId = $state('');
   selectedMaterialId = $state('');
   language = $state('ko');
@@ -76,6 +82,7 @@ class WorkspaceStore {
   editorDirty = $state(false);
   freshNode = $state<ScriptNode | null>(null);
   materials = $derived(this.data?.materials ?? []);
+  folders = $derived(this.data?.folders ?? []);
   workspace = $derived(this.data?.workspace ?? null);
   admin = $derived(this.workspace?.role === 'admin');
   current = $derived(
@@ -85,7 +92,9 @@ class WorkspaceStore {
     ...new Set([
       'ko',
       'zh-CN',
-      ...this.nodes.flatMap((n) => Object.keys(n.node.replies)),
+      ...this.nodes.flatMap((n) =>
+        replyChoices(n.node).flatMap((r) => Object.keys(r.replies)),
+      ),
     ]),
   ]);
 
@@ -260,6 +269,11 @@ class WorkspaceStore {
   }
   select(id: string, reset = false) {
     if (this.nav === 'scripts' && !this.navigate('workbench')) return;
+    this.focusScript(id, reset);
+    this.query = '';
+    this.nav = 'workbench';
+  }
+  focusScript(id: string, reset = false) {
     const node = this.nodes.find((r) => r.node.id === id)?.node;
     const kind = node?.kind ?? 'flow';
     const differentFlow =
@@ -272,8 +286,6 @@ class WorkspaceStore {
       this.history = [...this.history, this.selectedId];
     this.selectedId = id;
     this.browseKind = kind;
-    this.query = '';
-    this.nav = 'workbench';
   }
   back() {
     const previous = this.history.at(-1);

@@ -45,6 +45,48 @@ export async function materialUrl(material: Material) {
     await invoke<string>('material_path', { id: material.id }),
   );
 }
+export async function copyMaterial(material: Material) {
+  if (material.kind !== 'image') return copyText(material.text);
+  const response = await fetch(await materialUrl(material));
+  if (!response.ok) throw new Error('图片读取失败，请导出后使用');
+  const bitmap = await createImageBitmap(await response.blob());
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('无法处理图片，请导出后使用');
+    context.drawImage(bitmap, 0, 0);
+    if (native()) {
+      const { Image } = await import('@tauri-apps/api/image');
+      const { writeImage } =
+        await import('@tauri-apps/plugin-clipboard-manager');
+      const data = context.getImageData(0, 0, canvas.width, canvas.height);
+      const image = await Image.new(
+        new Uint8Array(data.data.buffer),
+        canvas.width,
+        canvas.height,
+      );
+      try {
+        await writeImage(image);
+      } finally {
+        await image.close();
+      }
+    } else {
+      const png = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error('图片转换失败'))),
+          'image/png',
+        ),
+      );
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': png }),
+      ]);
+    }
+  } finally {
+    bitmap.close();
+  }
+}
 export async function exportMaterial(material: Material) {
   if (!material.hash) return copyText(material.text);
   if (native()) {
@@ -81,9 +123,20 @@ export async function uploadFiles(files: FileList | File[]) {
   if (!response.ok) throw new Error(value.message || '导入失败');
   return value as Material[];
 }
-export async function selectNativeFiles() {
+export async function selectNativeFiles(imagesOnly = false) {
   const { open } = await import('@tauri-apps/plugin-dialog');
-  const paths = await open({ multiple: true, directory: false });
+  const paths = await open({
+    multiple: true,
+    directory: false,
+    filters: imagesOnly
+      ? [
+          {
+            name: '图片',
+            extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
+          },
+        ]
+      : undefined,
+  });
   if (!paths) return [];
   return invoke<Material[]>('import_files', {
     paths: Array.isArray(paths) ? paths : [paths],

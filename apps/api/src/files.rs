@@ -61,6 +61,8 @@ pub async fn material_from_file(
         name: name.into(),
         kind: kind.into(),
         category: "未分类".into(),
+        folder_id: None,
+        image_ids: vec![],
         tags: vec![],
         notes: String::new(),
         text: String::new(),
@@ -88,12 +90,14 @@ fn read_rows(path: &Path) -> Result<Vec<SheetRow>> {
         open_workbook_auto(path).map_err(|e| Error::invalid(format!("无法读取表格：{e}")))?;
     let mut rows = Vec::new();
     for (sheet, range) in workbook.worksheets() {
-        let first = range.start().map_or(0, |p| p.0);
+        let (first, first_column) = range.start().unwrap_or((0, 0));
         for (i, row) in range.rows().enumerate() {
             if rows.len() >= 100_000 {
                 return Err(Error::invalid("单个表格最多索引 100,000 行，请拆分后导入"));
             }
-            let cells: Vec<_> = row.iter().map(|c| c.to_string()).collect();
+            let cells: Vec<_> = std::iter::repeat_n(String::new(), first_column as usize)
+                .chain(row.iter().map(|c| c.to_string()))
+                .collect();
             if cells.iter().any(|s| !s.is_empty()) {
                 rows.push(SheetRow {
                     sheet: sheet.clone(),
@@ -371,6 +375,7 @@ pub fn scripts_from_rows(
             },
             is_entry: matches!(get("isEntry").as_str(), "true" | "1" | "是"),
             replies,
+            reply_options: vec![],
             variables: serde_json::from_str(&parse("variables")).map_err(|_| {
                 Error::invalid(format!("第 {} 行 variables 不是有效 JSON", row.row))
             })?,

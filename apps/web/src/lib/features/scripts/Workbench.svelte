@@ -8,9 +8,6 @@
     Pencil,
     BookOpen,
     FileText,
-    FileSpreadsheet,
-    Image,
-    Film,
     Plus,
     MessageSquare,
     RotateCcw,
@@ -23,40 +20,32 @@
     scriptKindName,
     languageName,
     quickCategoryName,
+    replyVariables,
   } from '$lib/utils/scripts';
-  import type { Material, Snapshot, ScriptKind } from '$lib/types';
+  import type { Snapshot, ScriptKind } from '$lib/types';
   import FlowCanvas from './FlowCanvas.svelte';
+  import FlowFullscreen from './FlowFullscreen.svelte';
   import ScriptNavigation from './ScriptNavigation.svelte';
+  import MaterialResult from '../knowledge/MaterialResult.svelte';
+  import ReplySelector from './ReplySelector.svelte';
+  let replyId = $state('');
+  $effect(() => {
+    node?.id;
+    replyId = '';
+  });
   let node = $derived(app.current?.node);
   let showFlow = $state(false);
+  let fullscreenFlow = $state(false);
   let completeFlow = $derived(
     app.nodes.filter(
       (r) => r.node.kind !== 'quick' && r.node.flowId === app.activeFlowId,
     ),
   );
   let preview = $derived(
-    node ? replyPreview(node, app.language, app.values) : null,
+    node ? replyPreview(node, app.language, app.values, replyId) : null,
   );
   let inputs = $derived(
-    node
-      ? [
-          ...new Map(
-            [
-              ...node.variables,
-              ...[
-                ...(node.replies[app.language] || '').matchAll(/\{([^{}]+)\}/g),
-              ].map(
-                (m) =>
-                  node.variables.find((v) => v.name === m[1]) || {
-                    name: m[1],
-                    label: m[1],
-                    required: true,
-                  },
-              ),
-            ].map((v) => [v.name, v]),
-          ).values(),
-        ]
-      : [],
+    node ? replyVariables(node, app.language, replyId) : [],
   );
   let flows = $derived(
     app.nodes.filter(
@@ -99,10 +88,6 @@
       app.history = [];
     }
   }
-  const icon = (kind: string) =>
-    ({ image: Image, video: Film, excel: FileSpreadsheet, text: FileText })[
-      kind
-    ] || FileText;
   function add() {
     app.freshNode =
       app.browseKind === 'quick'
@@ -154,15 +139,20 @@
       </p>{/if}
   </div>
 {:else}
-  <div class:compact-workbench={app.compact} class="workbench-grid">
+  <div class="workbench-grid">
     {#if showFlow && node && node.kind !== 'quick'}
       <section class="workbench-flow-overview" aria-label="完整流程预览">
         <div class="graph-toolbar">
           <span
             ><GitBranch size={17} />完整流程 · {completeFlow.length} 个步骤</span
-          ><button class="text-button" onclick={() => (showFlow = false)}
-            >收起流程图</button
           >
+          <div class="inline-actions">
+            <button class="text-button" onclick={() => (fullscreenFlow = true)}
+              >全屏查看流程</button
+            ><button class="text-button" onclick={() => (showFlow = false)}
+              >收起流程图</button
+            >
+          </div>
         </div>
         <p class="graph-help">
           高亮为当前话术。点击步骤查看回复，滚轮缩放，拖动空白处平移。
@@ -177,41 +167,41 @@
         </div>
       </section>
     {/if}
-    {#if !app.compact}<aside class="flow-list">
-        <div class="section-label">
-          {app.browseKind === 'quick' ? '快捷问答' : '流程入口'}
-          <span>{choices.length}</span>
-        </div>
-        {#each choices as entry}<button
-            class:active={app.selectedId === entry.node.id}
-            onclick={() => app.select(entry.node.id, true)}
-            ><span class="flow-list-icon"
-              >{#if app.browseKind === 'quick'}<MessageSquare
-                  size={17}
-                />{:else}<GitBranch size={17} />{/if}</span
-            ><span
-              >{entry.node.title}<small
-                >{entry.node.kind === 'quick'
-                  ? entry.node.category || '未分类'
-                  : app.flows.find((f) => f.id === entry.node.flowId)
-                      ?.name}</small
-              ></span
-            ><ChevronRight size={14} /></button
-          >{/each}
-        {#if !choices.length}<p class="field-help">
-            {app.browseKind === 'quick'
-              ? '尚无快捷话术，可在话术与流程中新增。'
-              : '尚无流程话术。'}
-          </p>{/if}
-        <div class="list-note">
-          <BookOpen size={17} />
-          <p>
-            {app.browseKind === 'quick'
-              ? '针对客户特定问题，找到对应回复并复制。'
-              : '随客户的回答选择分支，合适的资料就在手边。'}
-          </p>
-        </div>
-      </aside>{/if}
+    <aside class="flow-list">
+      <div class="section-label">
+        {app.browseKind === 'quick' ? '快捷问答' : '流程入口'}
+        <span>{choices.length}</span>
+      </div>
+      {#each choices as entry}<button
+          class:active={app.selectedId === entry.node.id}
+          onclick={() => app.select(entry.node.id, true)}
+          ><span class="flow-list-icon"
+            >{#if app.browseKind === 'quick'}<MessageSquare
+                size={17}
+              />{:else}<GitBranch size={17} />{/if}</span
+          ><span
+            >{entry.node.title}<small
+              >{entry.node.kind === 'quick'
+                ? entry.node.category || '未分类'
+                : app.flows.find((f) => f.id === entry.node.flowId)
+                    ?.name}</small
+            ></span
+          ><ChevronRight size={14} /></button
+        >{/each}
+      {#if !choices.length}<p class="field-help">
+          {app.browseKind === 'quick'
+            ? '尚无快捷话术，可在话术与流程中新增。'
+            : '尚无流程话术。'}
+        </p>{/if}
+      <div class="list-note">
+        <BookOpen size={17} />
+        <p>
+          {app.browseKind === 'quick'
+            ? '针对客户特定问题，找到对应回复并复制。'
+            : '随客户的回答选择分支，合适的资料就在手边。'}
+        </p>
+      </div>
+    </aside>
     <section class="conversation-panel">
       {#if node}
         <div class="conversation-top">
@@ -238,11 +228,11 @@
                   : app.admin
                     ? '管理员草稿'
                     : '管理员版本'}</span
-            >{#if !app.compact}<button
-                class="icon-button"
-                aria-label="编辑此话术"
-                onclick={() => app.edit()}><Pencil size={16} /></button
-              >{/if}
+            ><button
+              class="icon-button"
+              aria-label="编辑此话术"
+              onclick={() => app.edit()}><Pencil size={16} /></button
+            >
           </div>
         </div>
         {#if app.history.length}<div class="breadcrumbs">
@@ -257,6 +247,7 @@
         <p class="question">
           {node.question || '选择合适的回复，与客户开始沟通。'}
         </p>
+        <ReplySelector {node} bind:replyId />
         {#if inputs.length}<div class="variables">
             <div class="section-label">填写本次回复</div>
             {#each inputs as variable}<label
@@ -292,7 +283,7 @@
             >
           </div>
         </div>
-        {#if app.current?.source === 'personal' && app.current.official && !app.compact}<button
+        {#if app.current?.source === 'personal' && app.current.official}<button
             class="text-button"
             onclick={() => app.current && app.reset(app.current)}
             ><RotateCcw size={14} />恢复管理员版本</button
@@ -313,20 +304,6 @@
                 你可以返回上一步，或搜索其他话术继续沟通。
               </p>{/if}
           </div>{/if}
-        {#if app.compact}<details class="compact-materials">
-            <summary
-              ><BookOpen size={16} />关联素材 · {node.materialIds
-                .length}</summary
-            >{#each node.materialIds as id}{@const material =
-                app.materials.find((m) => m.id === id)}<button
-                class="material-mini"
-                disabled={!material}
-                onclick={() => (app.selectedMaterialId = id)}
-                >{material?.name || '素材已移除'}<ChevronRight
-                  size={15}
-                /></button
-              >{/each}
-          </details>{/if}
       {:else}<div class="empty">
           <MessageSquare size={32} />
           <h3>
@@ -335,41 +312,44 @@
           <p>可在“话术与流程”中添加，或搜索其他话术。</p>
         </div>{/if}
     </section>
-    {#if !app.compact}<aside class="related-panel">
-        <div class="section-label">
-          关联素材 <span>{node?.materialIds.length || 0}</span>
-        </div>
-        <p class="field-help">选中预览，导出后上传到云机。</p>
-        {#each node?.materialIds || [] as id}{@const material =
-            app.materials.find((m) => m.id === id)}{#if material}{@const Icon =
-              icon(material.kind)}<button
-              class="related-card"
-              onclick={() => (app.selectedMaterialId = id)}
-              ><div class="related-icon"><Icon size={25} /></div>
-              <strong>{material.name}</strong><small
-                >{material.category || '未分类'}</small
-              ><span class="related-action"
-                >预览素材 <ArrowRight size={14} /></span
-              ></button
-            >{:else}<div class="removed-material">
-              <FileText size={20} /><strong>素材已移除</strong>
-              <p>个人话术已保留，可在编辑页重新关联素材。</p>
-            </div>{/if}{/each}{#if !node?.materialIds.length}<div
-            class="empty small"
+    <aside class="related-panel">
+      <div class="section-label">
+        关联素材 <span>{node?.materialIds.length || 0}</span>
+      </div>
+      <p class="field-help">可直接复制，文件导出后上传到云机。</p>
+      {#each node?.materialIds || [] as id}{@const material =
+          app.materials.find((m) => m.id === id)}{#if material}<MaterialResult
+            hit={{ material, rows: [] }}
+          />
+        {:else}<div class="removed-material">
+            <FileText size={20} /><strong>素材已移除</strong>
+            <p>个人话术已保留，可在编辑页重新关联素材。</p>
+          </div>{/if}{/each}{#if !node?.materialIds.length}<div
+          class="empty small"
+        >
+          <BookOpen size={27} />
+          <p>
+            {node?.kind === 'quick'
+              ? '此话术还没有关联素材'
+              : '这一步还没有关联素材'}
+          </p>
+          <button
+            class="text-button"
+            onclick={() => {
+              app.nav = 'library';
+            }}>浏览知识库<ArrowRight size={14} /></button
           >
-            <BookOpen size={27} />
-            <p>
-              {node?.kind === 'quick'
-                ? '此话术还没有关联素材'
-                : '这一步还没有关联素材'}
-            </p>
-            <button
-              class="text-button"
-              onclick={() => {
-                app.nav = 'library';
-              }}>浏览知识库<ArrowRight size={14} /></button
-            >
-          </div>{/if}
-      </aside>{/if}
+        </div>{/if}
+    </aside>
   </div>
+{/if}
+
+{#if fullscreenFlow}
+  <FlowFullscreen
+    records={completeFlow}
+    selectedId={node?.id || ''}
+    name={app.flows.find((flow) => flow.id === app.activeFlowId)?.name ||
+      '完整流程'}
+    onclose={() => (fullscreenFlow = false)}
+  />
 {/if}

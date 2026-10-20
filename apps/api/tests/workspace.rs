@@ -60,6 +60,7 @@ fn node(id: &str, text: &str) -> ScriptNode {
         flow_id: Some("test-flow".into()),
         is_entry: true,
         replies: BTreeMap::from([("ko".into(), text.into())]),
+        reply_options: vec![],
         variables: vec![],
         branches: vec![],
         material_ids: vec![],
@@ -138,6 +139,8 @@ async fn explicit_initialization_roles_and_draft_visibility() {
                 name: "非法".into(),
                 kind: "text".into(),
                 category: "".into(),
+                folder_id: None,
+                image_ids: vec![],
                 tags: vec![],
                 notes: "".into(),
                 text: "".into(),
@@ -479,12 +482,12 @@ async fn excel_template_import_is_idempotent_and_searches_beyond_preview() {
     let hits = knowtosay::search::search(&state, "KX-987").await.unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].rows[0].row, 1177);
-    let page = knowtosay::search::rows(&state, &long.id, "KX-987", 0)
+    let page = knowtosay::search::rows(&state, &long.id, "KX-987", 0, None)
         .await
         .unwrap();
     assert_eq!(page.rows[0].sheet, "报价表");
     assert_eq!(page.total, 1);
-    let page = knowtosay::search::rows(&state, &long.id, "", 150)
+    let page = knowtosay::search::rows(&state, &long.id, "", 150, None)
         .await
         .unwrap();
     assert_eq!(page.rows[0].row, 151);
@@ -666,6 +669,8 @@ async fn material_category_migration_preserves_existing_assignments_and_empty_ca
         name: "原有资料".into(),
         kind: "text".into(),
         category: "原有分类".into(),
+        folder_id: None,
+        image_ids: vec![],
         tags: vec![],
         notes: String::new(),
         text: "原有内容".into(),
@@ -688,10 +693,13 @@ async fn material_category_migration_preserves_existing_assignments_and_empty_ca
     for table in ["draft_material_categories", "official_material_categories"] {
         assert_eq!(state.list::<String>(table).await.unwrap(), vec!["原有分类"]);
     }
-    assert_eq!(
-        state.list::<Material>("draft_materials").await.unwrap(),
-        vec![material.clone()]
-    );
+    let migrated = state.list::<Material>("draft_materials").await.unwrap();
+    let folders = state.list::<Folder>("draft_folders").await.unwrap();
+    assert_eq!(folders.len(), 1);
+    assert_eq!(folders[0].name, "原有分类");
+    let mut expected = material.clone();
+    expected.folder_id = Some(folders[0].id.clone());
+    assert_eq!(migrated, vec![expected]);
     let changed = Material {
         category: "新增归类".into(),
         ..material.clone()
@@ -1411,4 +1419,712 @@ async fn quick_category_migration_preserves_existing_node_names_in_all_scopes() 
         state.list::<ScriptNode>("draft_nodes").await.unwrap()[0],
         quick
     );
+}
+
+#[tokio::test]
+async fn quick_category_management_is_atomic_and_preserves_personal_overrides() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let mut quick = node("quick", "원래 답변");
+    quick.kind = ScriptKind::Quick;
+    quick.is_entry = false;
+    quick.flow_id = None;
+    quick.category = "原分类".into();
+    admin.save_node(quick.clone()).await.unwrap();
+    admin.create_quick_category("空分类").await.unwrap();
+    admin.publish().await.unwrap();
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sales
+        .apply(&admin.latest().await.unwrap(), "")
+        .await
+        .unwrap();
+    let mut personal = quick.clone();
+    personal.replies.insert("ko".into(), "내 답변".into());
+    sales.save_node(personal.clone()).await.unwrap();
+    assert!(
+        sales
+            .snapshot()
+            .await
+            .unwrap()
+            .manageable_quick_categories
+            .is_empty()
+    );
+    assert!(sales.update_quick_category("原分类", None).await.is_err());
+    admin
+        .update_quick_category("原分类", Some("新分类"))
+        .await
+        .unwrap();
+    assert_eq!(
+        admin.snapshot().await.unwrap().nodes[0].node.category,
+        "新分类"
+    );
+    assert_eq!(admin.latest().await.unwrap().nodes[0].category, "原分类");
+    assert!(
+        admin
+            .update_quick_category("空分类", Some("新分类"))
+            .await
+            .is_err()
+    );
+    assert!(admin.update_quick_category("未分类", None).await.is_err());
+    admin
+        .update_quick_category("空分类", Some("空分类改名"))
+        .await
+        .unwrap();
+    admin
+        .update_quick_category("空分类改名", None)
+        .await
+        .unwrap();
+    let before = serde_json::to_value(admin.snapshot().await.unwrap()).unwrap();
+    sqlx::query("CREATE TRIGGER reject_category_update BEFORE UPDATE ON draft_nodes BEGIN SELECT RAISE(ABORT,'test rollback'); END").execute(&admin.pool).await.unwrap();
+    assert!(
+        admin
+            .update_quick_category("新分类", Some("应当回滚"))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        serde_json::to_value(admin.snapshot().await.unwrap()).unwrap(),
+        before
+    );
+    sqlx::query("DROP TRIGGER reject_category_update")
+        .execute(&admin.pool)
+        .await
+        .unwrap();
+    admin.update_quick_category("新分类", None).await.unwrap();
+    let release = admin.publish().await.unwrap();
+    assert!(release.quick_categories.is_empty());
+    assert_eq!(release.nodes[0].category, "未分类");
+    sales.apply(&release, "").await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert_eq!(snapshot.nodes[0].node, personal);
+    assert!(snapshot.quick_categories.contains(&"原分类".into()));
+    sales.create_quick_category("个人分类").await.unwrap();
+    personal.category = "个人分类".into();
+    sales.save_node(personal.clone()).await.unwrap();
+    sales
+        .update_quick_category("个人分类", Some("我的分类"))
+        .await
+        .unwrap();
+    assert!(
+        sales
+            .snapshot()
+            .await
+            .unwrap()
+            .manageable_quick_categories
+            .contains(&"我的分类".into())
+    );
+    sales.update_quick_category("我的分类", None).await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert_eq!(snapshot.nodes[0].node.replies["ko"], "내 답변");
+    assert_eq!(snapshot.nodes[0].node.category, "未分类");
+    assert_eq!(
+        admin.snapshot().await.unwrap().nodes[0].node.replies["ko"],
+        "원래 답변"
+    );
+}
+
+#[tokio::test]
+async fn foreign_backup_import_merges_drafts_remaps_references_and_keeps_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = create_admin(&dir.path().join("source")).await;
+    let material = binary_material(&source, "manual.txt", b"shared content").await;
+    source.create_quick_category("空快捷分类").await.unwrap();
+    source.create_material_category("空素材分类").await.unwrap();
+    let mut root = node("same-id", "백업 답변");
+    root.position = Some(Position { x: 55.0, y: 70.0 });
+    root.material_ids = vec![material.id.clone(), "removed-material".into()];
+    root.branches = vec![Branch {
+        id: "branch".into(),
+        label: "继续".into(),
+        target_id: "child".into(),
+    }];
+    let mut child = node("child", "다음 답변");
+    child.is_entry = false;
+    source.save_nodes(vec![root.clone(), child]).await.unwrap();
+    source.publish().await.unwrap();
+    root.replies.insert("ko".into(), "최신 초안 답변".into());
+    source.save_node(root.clone()).await.unwrap();
+    let saved = backup::backup(&source, None).await.unwrap();
+    let target = create_admin(&dir.path().join("target")).await;
+    target
+        .save_node(node("same-id", "我的原有话术"))
+        .await
+        .unwrap();
+    binary_material(&target, "existing.txt", b"shared content").await;
+    target.publish().await.unwrap();
+    let identity = target.required_workspace().await.unwrap();
+    let published = serde_json::to_value(target.latest().await.unwrap()).unwrap();
+    assert!(backup::restore(&target, &saved.path).await.is_err());
+    assert_eq!(
+        local(
+            &target,
+            "POST",
+            "/backup/import",
+            json!({"directory":saved.path})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let snapshot = target.snapshot().await.unwrap();
+    assert_eq!(
+        serde_json::to_value(snapshot.workspace.as_ref().unwrap()).unwrap(),
+        serde_json::to_value(&identity).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(target.latest().await.unwrap()).unwrap(),
+        published
+    );
+    assert!(snapshot.draft_dirty);
+    assert!(snapshot.quick_categories.contains(&"空快捷分类".into()));
+    assert!(snapshot.material_categories.contains(&"空素材分类".into()));
+    assert_eq!(
+        snapshot
+            .nodes
+            .iter()
+            .find(|r| r.node.id == "same-id")
+            .unwrap()
+            .node
+            .replies["ko"],
+        "我的原有话术"
+    );
+    let imported = &snapshot
+        .nodes
+        .iter()
+        .find(|r| {
+            r.node
+                .replies
+                .get("ko")
+                .is_some_and(|s| s == "최신 초안 답변")
+        })
+        .unwrap()
+        .node;
+    assert_ne!(imported.id, root.id);
+    assert_ne!(imported.flow_id, root.flow_id);
+    assert_eq!(imported.position, root.position);
+    assert_ne!(imported.branches[0].id, "branch");
+    let next = &snapshot
+        .nodes
+        .iter()
+        .find(|r| r.node.id == imported.branches[0].target_id)
+        .unwrap()
+        .node;
+    assert_eq!(next.flow_id, imported.flow_id);
+    assert_eq!(next.replies["ko"], "다음 답변");
+    let linked = snapshot
+        .materials
+        .iter()
+        .find(|m| m.id == imported.material_ids[0])
+        .unwrap();
+    assert_ne!(linked.id, material.id);
+    assert_eq!(linked.hash, material.hash);
+    assert_ne!(imported.material_ids[1], "removed-material");
+    assert!(
+        !snapshot
+            .materials
+            .iter()
+            .any(|m| m.id == imported.material_ids[1])
+    );
+    assert_eq!(
+        snapshot
+            .flows
+            .iter()
+            .find(|f| Some(&f.id) == imported.flow_id.as_ref())
+            .unwrap()
+            .name,
+        "测试流程（导入 2）"
+    );
+    let blob_count = std::fs::read_dir(target.root.join("blobs"))
+        .unwrap()
+        .count();
+    assert_eq!(blob_count, 1);
+    // A failed database write rolls back the whole import.
+    let before = serde_json::to_value(target.snapshot().await.unwrap()).unwrap();
+    sqlx::query("CREATE TRIGGER reject_backup_node BEFORE INSERT ON draft_nodes BEGIN SELECT RAISE(ABORT,'test rollback'); END").execute(&target.pool).await.unwrap();
+    assert!(backup::import_as_draft(&target, &saved.path).await.is_err());
+    assert_eq!(
+        serde_json::to_value(target.snapshot().await.unwrap()).unwrap(),
+        before
+    );
+    sqlx::query("DROP TRIGGER reject_backup_node")
+        .execute(&target.pool)
+        .await
+        .unwrap();
+    // File corruption also leaves all current records and releases intact.
+    let hash = material.hash.as_ref().unwrap();
+    tokio::fs::write(
+        std::path::Path::new(&saved.path).join("blobs").join(hash),
+        b"corrupt",
+    )
+    .await
+    .unwrap();
+    assert!(backup::import_as_draft(&target, &saved.path).await.is_err());
+    assert_eq!(
+        serde_json::to_value(target.snapshot().await.unwrap()).unwrap(),
+        before
+    );
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sales
+        .apply(&source.latest().await.unwrap(), "")
+        .await
+        .unwrap();
+    assert_eq!(
+        local(
+            &sales,
+            "POST",
+            "/backup/import",
+            json!({"directory":saved.path})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let release = target.publish().await.unwrap();
+    assert_eq!(release.group_id, identity.group_id);
+    assert_eq!(release.version, identity.version + 1);
+    assert_eq!(release.nodes.len(), 3);
+}
+
+#[tokio::test]
+async fn foreign_single_canvas_backup_import_upgrades_without_adopting_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = create_admin(&dir.path().join("source")).await;
+    source
+        .save_node(node("legacy-root", "이전 내용"))
+        .await
+        .unwrap();
+    source.publish().await.unwrap();
+    let saved = backup::backup(&source, None).await.unwrap();
+    let path = std::path::Path::new(&saved.path).join("backup.json");
+    let mut data: Value = serde_json::from_slice(&tokio::fs::read(&path).await.unwrap()).unwrap();
+    data["format_version"] = json!(1);
+    for field in [
+        "draft_flows",
+        "official_flows",
+        "draft_quick_categories",
+        "official_quick_categories",
+    ] {
+        data.as_object_mut().unwrap().remove(field);
+    }
+    for field in ["draft_nodes", "official_nodes"] {
+        for node in data[field].as_array_mut().unwrap() {
+            node.as_object_mut().unwrap().remove("flowId");
+        }
+    }
+    for release in data["releases"].as_array_mut().unwrap() {
+        release["formatVersion"] = json!(1);
+        release.as_object_mut().unwrap().remove("flows");
+        release.as_object_mut().unwrap().remove("quickCategories");
+        for node in release["nodes"].as_array_mut().unwrap() {
+            node.as_object_mut().unwrap().remove("flowId");
+        }
+    }
+    tokio::fs::write(&path, serde_json::to_vec(&data).unwrap())
+        .await
+        .unwrap();
+    let target = create_admin(&dir.path().join("target")).await;
+    let identity = serde_json::to_value(target.required_workspace().await.unwrap()).unwrap();
+    backup::import_as_draft(&target, &saved.path).await.unwrap();
+    let snapshot = target.snapshot().await.unwrap();
+    assert_eq!(serde_json::to_value(snapshot.workspace).unwrap(), identity);
+    assert_eq!(snapshot.nodes.len(), 1);
+    let imported = &snapshot.nodes[0].node;
+    assert_ne!(imported.id, "legacy-root");
+    assert!(imported.is_entry);
+    assert_eq!(imported.replies["ko"], "이전 내용");
+    assert_eq!(
+        snapshot
+            .flows
+            .iter()
+            .find(|f| Some(&f.id) == imported.flow_id.as_ref())
+            .unwrap()
+            .name,
+        "原有流程"
+    );
+}
+
+#[tokio::test]
+async fn excel_preview_preserves_original_columns_sheet_selection_and_pagination() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = create_admin(dir.path()).await;
+    let material = binary_material(
+        &state,
+        "grid.xlsx",
+        include_bytes!("../../web/tests/fixtures/sales-grid.xlsx"),
+    )
+    .await;
+    let page = knowtosay::search::rows(&state, &material.id, "", 0, Some("产品资料"))
+        .await
+        .unwrap();
+    assert_eq!(page.sheets, vec!["产品资料", "售后"]);
+    assert_eq!(page.total, 163);
+    assert_eq!(page.rows.len(), 150);
+    assert_eq!(page.column_count, 27);
+    assert_eq!(page.rows[0].row, 3);
+    assert_eq!(&page.rows[0].cells[..4], &["", "", "产品", "韩语回复"]);
+    assert_eq!(page.rows[0].cells[26], "远列");
+    let next = knowtosay::search::rows(&state, &material.id, "", 150, Some("产品资料"))
+        .await
+        .unwrap();
+    assert_eq!(next.rows.len(), 13);
+    assert_eq!(next.rows[0].row, 153);
+    let (_, json) = local(
+        &state,
+        "GET",
+        &format!("/materials/{}/rows?sheet=%E5%94%AE%E5%90%8E", material.id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(json["total"], 1);
+    assert_eq!(json["rows"][0]["row"], 2);
+    assert_eq!(json["rows"][0]["cells"][1], "售后内容");
+    let matches = knowtosay::search::rows(&state, &material.id, "KOREA", 0, None)
+        .await
+        .unwrap();
+    assert_eq!(matches.total, 1);
+    assert_eq!(matches.rows[0].row, 4);
+    let mut stored = material;
+    stored.category = "产品".into();
+    state
+        .put("draft_materials", &stored.id, &stored)
+        .await
+        .unwrap();
+    assert!(
+        knowtosay::search::search_filtered(&state, "KOREA", Some("售后"))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        knowtosay::search::search_filtered(&state, "KOREA", Some("产品"))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn multiple_quick_replies_survive_storage_sync_backups_and_personal_updates() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let mut quick = node("multi", "기본 답변");
+    quick.kind = ScriptKind::Quick;
+    quick.flow_id = None;
+    quick.is_entry = false;
+    let mut legacy = serde_json::to_value(&quick).unwrap();
+    legacy.as_object_mut().unwrap().remove("replyOptions");
+    assert!(
+        serde_json::from_value::<ScriptNode>(legacy)
+            .unwrap()
+            .reply_options
+            .is_empty()
+    );
+    quick.reply_options = vec![ReplyOption {
+        id: "option-a".into(),
+        name: "追问".into(),
+        replies: BTreeMap::from([
+            ("zh-CN".into(), "具体情况".into()),
+            ("ko".into(), "상세 상황".into()),
+        ]),
+    }];
+    let mut invalid = quick.clone();
+    invalid.reply_options.push(invalid.reply_options[0].clone());
+    assert!(admin.save_node(invalid).await.is_err());
+    let mut invalid = node("invalid-flow", "flow");
+    invalid.reply_options = quick.reply_options.clone();
+    assert!(admin.save_node(invalid).await.is_err());
+    admin.save_node(quick.clone()).await.unwrap();
+    let reopened = AppState::open(&*admin.root).await.unwrap();
+    assert_eq!(reopened.snapshot().await.unwrap().nodes[0].node, quick);
+    admin.publish().await.unwrap();
+    let address = server(admin.clone(), None).await;
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    assert_eq!(sales.snapshot().await.unwrap().nodes[0].node, quick);
+    let mut personal = quick.clone();
+    personal.reply_options[0]
+        .replies
+        .insert("ko".into(), "개인 답변".into());
+    sales.save_node(personal.clone()).await.unwrap();
+    let personal_backup = knowtosay::personal::export(&sales, None).await.unwrap();
+    quick.reply_options[0].name = "管理员更名".into();
+    admin.save_node(quick.clone()).await.unwrap();
+    admin.publish().await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert_eq!(snapshot.nodes[0].node, personal);
+    assert_eq!(snapshot.nodes[0].official.as_ref(), Some(&quick));
+    let package = backup::export_package(&admin, None).await.unwrap();
+    let offline = AppState::open(dir.path().join("offline")).await.unwrap();
+    backup::import_package(&offline, &package.path)
+        .await
+        .unwrap();
+    assert_eq!(offline.snapshot().await.unwrap().nodes[0].node, quick);
+    knowtosay::personal::import(&offline, &personal_backup.path)
+        .await
+        .unwrap();
+    assert_eq!(offline.snapshot().await.unwrap().nodes[0].node, personal);
+    let saved = backup::backup(&admin, None).await.unwrap();
+    let other = create_admin(&dir.path().join("other")).await;
+    backup::import_as_draft(&other, &saved.path).await.unwrap();
+    assert_eq!(
+        other.snapshot().await.unwrap().nodes[0].node.reply_options,
+        quick.reply_options
+    );
+    assert_eq!(
+        local(&admin, "DELETE", "/scripts/multi", json!(null))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    backup::restore(&admin, &saved.path).await.unwrap();
+    assert_eq!(admin.snapshot().await.unwrap().nodes[0].node, quick);
+}
+
+#[tokio::test]
+async fn case_images_and_folders_survive_moves_sync_and_foreign_backup_import() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let root = Folder {
+        id: "cases".into(),
+        name: "案例".into(),
+        parent_id: None,
+    };
+    let child = Folder {
+        id: "child".into(),
+        name: "治疗方案".into(),
+        parent_id: Some(root.id.clone()),
+    };
+    admin.save_folder(root.clone()).await.unwrap();
+    admin.save_folder(child.clone()).await.unwrap();
+    assert!(
+        admin
+            .save_folder(Folder {
+                parent_id: Some(child.id.clone()),
+                ..root.clone()
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        admin
+            .save_folder(Folder {
+                id: "duplicate".into(),
+                ..child.clone()
+            })
+            .await
+            .is_err()
+    );
+    let image = binary_material(
+        &admin,
+        "case.png",
+        include_bytes!("../../web/tests/fixtures/preview.png"),
+    )
+    .await;
+    let content = json!({"id":"case", "name":"案例组合", "kind":"case", "text":"案例文案", "notes":"详情备注", "category":"", "folderId":child.id, "imageIds":[image.id], "tags":["案例标签"], "hash":null, "size":0, "mime":"text/plain", "rows":[]});
+    assert_eq!(
+        local(&admin, "POST", "/materials", content.clone()).await.0,
+        StatusCode::OK
+    );
+    let case = admin
+        .snapshot()
+        .await
+        .unwrap()
+        .materials
+        .into_iter()
+        .find(|m| m.id == "case")
+        .unwrap();
+    assert_eq!(case.size, image.size);
+    let mut invalid = content;
+    invalid["imageIds"] = json!([image.id, image.id]);
+    assert_eq!(
+        local(&admin, "POST", "/materials", invalid).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    admin
+        .save_folder(Folder {
+            name: "调整后的方案".into(),
+            ..child.clone()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        admin
+            .snapshot()
+            .await
+            .unwrap()
+            .materials
+            .into_iter()
+            .find(|m| m.id == "case")
+            .unwrap()
+            .folder_id
+            .as_deref(),
+        Some("child")
+    );
+    assert_eq!(
+        knowtosay::search::search_folder(&admin, "案例文案", None, Some("cases"))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        knowtosay::search::search_folder(&admin, "案例文案", None, Some("missing"))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    admin.publish().await.unwrap();
+    let address = server(admin.clone(), None).await;
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    assert_eq!(sales.snapshot().await.unwrap().folders.len(), 2);
+    assert!(
+        sales
+            .root
+            .join("blobs")
+            .join(image.hash.as_ref().unwrap())
+            .is_file()
+    );
+    assert_eq!(
+        sales
+            .snapshot()
+            .await
+            .unwrap()
+            .materials
+            .into_iter()
+            .find(|m| m.id == "case")
+            .unwrap(),
+        case
+    );
+    let package = backup::export_package(&admin, None).await.unwrap();
+    let offline = AppState::open(dir.path().join("offline")).await.unwrap();
+    backup::import_package(&offline, &package.path)
+        .await
+        .unwrap();
+    assert_eq!(offline.snapshot().await.unwrap().folders.len(), 2);
+    let saved = backup::backup(&admin, None).await.unwrap();
+    let other = create_admin(&dir.path().join("other")).await;
+    other
+        .save_folder(Folder {
+            id: "existing".into(),
+            ..root.clone()
+        })
+        .await
+        .unwrap();
+    backup::import_as_draft(&other, &saved.path).await.unwrap();
+    let imported = other.snapshot().await.unwrap();
+    let imported_case = imported
+        .materials
+        .iter()
+        .find(|m| m.kind == "case")
+        .unwrap();
+    assert_ne!(imported_case.image_ids[0], image.id);
+    let imported_image = imported
+        .materials
+        .iter()
+        .find(|m| m.id == imported_case.image_ids[0])
+        .unwrap();
+    assert_eq!(imported_image.hash, image.hash);
+    let imported_child = imported
+        .folders
+        .iter()
+        .find(|f| Some(&f.id) == imported_case.folder_id.as_ref())
+        .unwrap();
+    let imported_root = imported
+        .folders
+        .iter()
+        .find(|f| Some(&f.id) == imported_child.parent_id.as_ref())
+        .unwrap();
+    assert_eq!(imported_root.name, "案例（导入 2）");
+    other.publish().await.unwrap();
+    admin.delete_folder("child").await.unwrap();
+    assert_eq!(
+        admin
+            .snapshot()
+            .await
+            .unwrap()
+            .materials
+            .iter()
+            .find(|m| m.id == "case")
+            .unwrap()
+            .folder_id
+            .as_deref(),
+        Some("cases")
+    );
+    backup::restore(&admin, &saved.path).await.unwrap();
+    assert_eq!(admin.snapshot().await.unwrap().folders.len(), 2);
+}
+
+#[tokio::test]
+async fn legacy_categories_and_release_manifests_migrate_to_stable_folders() {
+    let dir = tempfile::tempdir().unwrap();
+    let migration_dir = dir.path().join("previous-migrations");
+    tokio::fs::create_dir_all(&migration_dir).await.unwrap();
+    for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with("0006") {
+            continue;
+        }
+        tokio::fs::copy(entry.path(), migration_dir.join(name))
+            .await
+            .unwrap();
+    }
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(dir.path().join("workspace.sqlite"))
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::migrate::Migrator::new(migration_dir.as_path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap();
+    let group_id = uuid::Uuid::new_v4().to_string();
+    let material = json!({"id":"legacy-file","name":"原有文字","kind":"text","category":"原分类","tags":[],"notes":"旧备注","text":"旧正文","mime":"text/plain","hash":null,"size":0,"rows":[]});
+    for table in ["draft_materials", "official_materials"] {
+        sqlx::query(&format!(
+            "INSERT INTO {table}(id,json) VALUES('legacy-file',?)"
+        ))
+        .bind(material.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("INSERT INTO workspace(id,json) VALUES(1,?)").bind(json!({"groupId":group_id,"name":"旧工作组","role":"admin","version":1,"adminAddress":null}).to_string()).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO releases(version,json) VALUES(1,?)").bind(json!({"formatVersion":2,"groupId":group_id,"groupName":"旧工作组","version":1,"nodes":[],"flows":[],"materials":[material],"materialCategories":["原分类"],"quickCategories":[]}).to_string()).execute(&pool).await.unwrap();
+    pool.close().await;
+    let state = AppState::open(dir.path()).await.unwrap();
+    let first = state.latest().await.unwrap();
+    let second = state.latest().await.unwrap();
+    assert_eq!(first.folders, second.folders);
+    assert_eq!(first.folders.len(), 1);
+    assert_eq!(
+        first.materials[0].folder_id.as_ref(),
+        Some(&first.folders[0].id)
+    );
+    let snapshot = state.snapshot().await.unwrap();
+    assert_eq!(snapshot.folders[0].id, first.folders[0].id);
+    assert_eq!(
+        snapshot.materials[0].folder_id.as_ref(),
+        Some(&snapshot.folders[0].id)
+    );
+    state.delete_folder(&snapshot.folders[0].id).await.unwrap();
+    let saved = backup::backup(&state, None).await.unwrap();
+    state
+        .save_folder(Folder {
+            id: "temporary".into(),
+            name: "临时文件夹".into(),
+            parent_id: None,
+        })
+        .await
+        .unwrap();
+    backup::restore(&state, &saved.path).await.unwrap();
+    assert!(state.snapshot().await.unwrap().folders.is_empty());
 }

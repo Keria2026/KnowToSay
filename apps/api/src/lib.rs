@@ -4,6 +4,7 @@ pub mod db;
 pub mod desktop_behavior;
 pub mod error;
 pub mod files;
+pub mod folders;
 pub mod http;
 pub mod models;
 pub mod personal;

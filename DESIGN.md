@@ -273,6 +273,16 @@ components:
     padding: 64px
 ---
 
+## KnowToSay 桌面适用范围
+
+本文件保留视觉分析中的颜色、字体、间距、形状和交互基准。当前产品是离线销售桌面工具，页面与窗口的具体规则以[桌面页面与操作流程](docs/architecture/desktop-interactions.md)为准；下文营销站点的购买按钮、产品摄影、全幅商品区块及黑色 global-nav 是参考组件，不要求在桌面中逐一实现。
+
+- 完整窗口采用左侧四页导航和顶部搜索工具栏，悬浮窗用页面下拉框访问同样内容；不恢复已移除的顶部黑色品牌条与侧栏工作组卡片。
+- 当前导航项使用单一蓝色的浅色背景、蓝色文字和 600 字重，并声明当前页；未选中项使用浅灰文字，保留可读性和键盘焦点。
+- 流程全屏查看使用整个屏幕与浅色画布，正常桌面宽度在右侧放置无阴影的悬浮竖向节点详情面板；窄屏将详情移至画布下方。全屏是查看模式，不直接修改图表。
+- 应用内 Logo、桌面 PNG/ICO、安装器与已有快捷方式使用同版品牌图形。品牌资源可使用自身配色，界面操作与选中信号继续遵循单一 Action Blue。
+- 复用 `apps/web/src/app.css` 的设计变量，不引入装饰渐变、界面阴影或第二交互强调色。保留原始设计变量，不以文档同步为由重设视觉风格。
+
 ## Overview
 
 Apple's web presence is a masterclass in **reverent product photography framed by near-invisible UI**. Every page is a stack of edge-to-edge product "tiles" — alternating light and dark canvases, each centered on a hero headline, a one-line tagline, two tiny blue pill CTAs, and an impossibly crisp product render. Nothing competes with the product. Typography is confident but quiet; color is either pure white, an off-white parchment, or a near-black tile; interactive elements are a single, quiet blue.

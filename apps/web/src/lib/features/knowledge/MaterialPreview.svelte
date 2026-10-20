@@ -1,56 +1,18 @@
 <script lang="ts">
-  import {
-    Download,
-    Copy,
-    FolderOpen,
-    FileSpreadsheet,
-    Play,
-    FileText,
-  } from 'lucide-svelte';
+  import { FolderOpen, FileText } from 'lucide-svelte';
   import { app } from '../workspace/store.svelte';
-  import {
-    materialUrl,
-    exportMaterial,
-    revealMaterial,
-    native,
-    api,
-  } from '../workspace/api';
+  import { materialUrl, revealMaterial, native } from '../workspace/api';
   import { bytes, kindName } from '$lib/utils/scripts';
-  import type { Material, SheetPage } from '$lib/types';
+  import { folderPath } from './folders';
+  import MaterialImage from './MaterialImage.svelte';
+  import MaterialActions from './MaterialActions.svelte';
+  import SheetPreview from './SheetPreview.svelte';
+  import type { Material } from '$lib/types';
   let { material, query = '' }: { material: Material; query?: string } =
     $props();
+  let expandedImage = $state('');
   let url = $state('');
   let failed = $state(false);
-  let sheetPage = $state<SheetPage | null>(null);
-  let rowError = $state('');
-  let offset = $state(0);
-  let lastKey = '';
-  let rows = $derived(sheetPage?.rows || []);
-  $effect(() => {
-    const id = material.id;
-    const q = query;
-    const key = `${id}:${q}`;
-    if (lastKey !== key) {
-      lastKey = key;
-      offset = 0;
-    }
-    const start = offset;
-    let active = true;
-    rowError = '';
-    if (material.kind === 'excel')
-      api<SheetPage>(
-        `/materials/${encodeURIComponent(id)}/rows?q=${encodeURIComponent(q)}&offset=${start}`,
-      )
-        .then((result) => {
-          if (active) sheetPage = result;
-        })
-        .catch((e) => {
-          if (active) rowError = String(e);
-        });
-    return () => {
-      active = false;
-    };
-  });
   $effect(() => {
     const current = material;
     let active = true;
@@ -72,7 +34,7 @@
 
 <div class="preview-meta">
   <span class="pill">{kindName(material.kind)}</span><span
-    >{material.category || '未分类'}</span
+    >{folderPath(app.folders, material.folderId)}</span
   >{#if material.hash}<span>{bytes(material.size)}</span>{/if}
 </div>
 {#if material.notes}<p class="muted">{material.notes}</p>{/if}
@@ -90,41 +52,35 @@
     <video controls preload="metadata" src={url} onerror={() => (failed = true)}
       >浏览器不支持此格式，请导出后播放。</video
     >
+  {:else if material.kind === 'case'}
+    <div class="section-title">
+      <h3>文案</h3>
+      <MaterialActions {material} />
+    </div>
+    <p class="text-preview">{material.text}</p>
+    <h3>组合图片 · {material.imageIds?.length ?? 0}</h3>
+    <div class="case-image-grid">
+      {#each material.imageIds ?? [] as id}{@const image = app.materials.find(
+          (m) => m.id === id,
+        )}
+        <div class="case-image-tile" class:expanded={expandedImage === id}>
+          {#if image}<button
+              type="button"
+              class="case-image-preview"
+              aria-label={`预览${image.name}`}
+              onclick={() => (expandedImage = expandedImage === id ? '' : id)}
+              ><MaterialImage material={image} /></button
+            ><MaterialActions material={image} />{:else}<p class="field-help">
+              图片已移除
+            </p>{/if}
+        </div>
+      {/each}
+    </div>
   {:else if material.kind === 'text'}<div class="text-preview">
       {material.text || '暂无正文'}
     </div>
   {:else if material.kind === 'excel'}
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>工作表 / 行</th><th>单元格内容</th></tr></thead><tbody
-          >{#each rows.slice(0, 150) as row}<tr
-              ><th>{row.sheet}<small>第 {row.row} 行</small></th><td
-                >{#each row.cells as cell}<span class="excel-cell"
-                    >{cell || '—'}</span
-                  >{/each}</td
-              ></tr
-            >{/each}</tbody
-        >
-      </table>
-    </div>
-    {#if rowError}<p class="field-help" role="alert">{rowError}</p>{:else}<p
-        class="field-help"
-      >
-        共 {sheetPage?.total ?? 0} 个{query ? '匹配' : '非空'}行，当前显示第 {rows.length
-          ? offset + 1
-          : 0}–{offset + rows.length} 行。
-      </p>
-      <div class="button-row">
-        <button
-          class="button secondary"
-          disabled={offset === 0}
-          onclick={() => (offset = Math.max(0, offset - 150))}>上一页</button
-        ><button
-          class="button secondary"
-          disabled={offset + rows.length >= (sheetPage?.total ?? 0)}
-          onclick={() => (offset += 150)}>下一页</button
-        >
-      </div>{/if}
+    {#key material.id}<SheetPreview materialId={material.id} {query} />{/key}
   {:else}<div class="empty small">
       <FileText size={40} />
       <p>导出文件后在本机应用中打开。</p>
@@ -134,21 +90,7 @@
     {#each material.tags as tag}<span class="tag">{tag}</span>{/each}
   </div>{/if}
 <div class="button-row">
-  <button
-    class="button primary"
-    disabled={!!app.busy}
-    onclick={() =>
-      app.task(
-        '导出素材',
-        () => exportMaterial(material),
-        material.hash
-          ? '已处理导出请求；请手动上传到 LDCLOUD'
-          : '已复制素材正文',
-      )}
-    >{#if material.hash}<Download size={16} />导出文件{:else}<Copy
-        size={16}
-      />复制正文{/if}</button
-  >
+  {#if material.kind !== 'case'}<MaterialActions {material} />{/if}
   {#if material.hash && native()}<button
       class="button secondary"
       onclick={() => app.task('定位素材', () => revealMaterial(material.id))}

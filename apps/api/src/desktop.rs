@@ -61,7 +61,11 @@ async fn import_files(
 }
 
 #[tauri::command]
-async fn material_path(state: tauri::State<'_, AppState>, id: String) -> Result<String, ApiError> {
+async fn material_path(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<String, ApiError> {
     let snapshot = state.snapshot().await.map_err(api_error)?;
     let m = snapshot
         .materials
@@ -74,7 +78,11 @@ async fn material_path(state: tauri::State<'_, AppState>, id: String) -> Result<
     if !knowtosay::db::valid_hash(&hash) {
         return Err(api_error(Error::invalid("素材引用无效")));
     }
-    Ok(state.root.join("blobs").join(hash).to_string_lossy().into())
+    let path = state.root.join("blobs").join(hash);
+    app.asset_protocol_scope()
+        .allow_file(&path)
+        .map_err(|e| api_error(Error::internal(e)))?;
+    Ok(path.to_string_lossy().into())
 }
 
 #[tauri::command]
@@ -130,15 +138,34 @@ async fn reveal_material(
 }
 
 #[tauri::command]
-async fn window_mode(window: tauri::WebviewWindow, compact: bool) -> Result<(), String> {
+async fn window_mode(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    compact: bool,
+) -> Result<(), String> {
+    let control = app.state::<desktop_support::DesktopController>();
+    let mut saved = control.main_bounds.lock().map_err(|e| e.to_string())?;
+    if compact {
+        *saved = Some(desktop_support::MainWindowBounds {
+            size: window.inner_size().map_err(|e| e.to_string())?,
+            position: window.outer_position().map_err(|e| e.to_string())?,
+            maximized: window.is_maximized().map_err(|e| e.to_string())?,
+        });
+        window.unmaximize().map_err(|e| e.to_string())?;
+        window
+            .set_size(desktop_support::fitted_size(&window, (420.0, 740.0)))
+            .map_err(|e| e.to_string())?;
+    } else if let Some(bounds) = saved.take() {
+        window.set_size(bounds.size).map_err(|e| e.to_string())?;
+        window
+            .set_position(bounds.position)
+            .map_err(|e| e.to_string())?;
+        if bounds.maximized {
+            window.maximize().map_err(|e| e.to_string())?;
+        }
+    }
     window
         .set_always_on_top(compact)
-        .map_err(|e| e.to_string())?;
-    window
-        .set_size(tauri::LogicalSize::new(
-            if compact { 400.0 } else { 1360.0 },
-            if compact { 740.0 } else { 860.0 },
-        ))
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -193,7 +220,6 @@ fn main() {
             reveal_material,
             window_mode,
             desktop_support::open_search,
-            desktop_support::open_quick_replies,
             desktop_support::close_search,
             desktop_support::resize_search,
             desktop_support::open_script,

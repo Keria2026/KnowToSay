@@ -5,11 +5,9 @@
     MessageSquare,
     GitBranch,
     BookOpen,
-    Radio,
     Settings,
     PanelRightClose,
     Expand,
-    ChevronDown,
     X,
     Check,
     RefreshCw,
@@ -26,8 +24,10 @@
   import LibraryPage from '$lib/features/knowledge/LibraryPage.svelte';
   import MaterialDialog from '$lib/features/knowledge/MaterialDialog.svelte';
   import SearchResults from '$lib/features/workspace/SearchResults.svelte';
-  import SyncPage from '$lib/features/workspace/SyncPage.svelte';
   import SettingsPage from '$lib/features/workspace/SettingsPage.svelte';
+  import CompactWorkbench from '$lib/features/scripts/CompactWorkbench.svelte';
+  import ReplyDialog from '$lib/features/scripts/ReplyDialog.svelte';
+  import SearchScopePicker from '$lib/features/workspace/SearchScopePicker.svelte';
   import QuickSearch from '$lib/features/workspace/QuickSearch.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
@@ -37,16 +37,8 @@
     { id: 'workbench', name: '销售工作台', icon: MessageSquare },
     { id: 'scripts', name: '话术与流程', icon: GitBranch },
     { id: 'library', name: '知识库', icon: BookOpen },
-    { id: 'sync', name: '发布与同步', icon: Radio },
-    { id: 'settings', name: '工作组与备份', icon: Settings },
+    { id: 'settings', name: '设置', icon: Settings },
   ];
-  const titles: Record<string, string> = {
-    workbench: '让每次沟通，都有准备。',
-    scripts: '话术与流程',
-    library: '知识库',
-    sync: '发布与同步',
-    settings: '工作组与备份',
-  };
   $effect(() => {
     const group = app.workspace?.groupId;
     const flows = app.data?.flows;
@@ -100,9 +92,13 @@
   function shortcut(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
-      searchInput?.focus();
+      if (app.compact)
+        document
+          .querySelector<HTMLInputElement>('.compact-search input')
+          ?.focus();
+      else searchInput?.focus();
     }
-    if (event.key === 'Escape' && app.query) app.query = '';
+    if (!app.compact && event.key === 'Escape' && app.query) app.query = '';
   }
 </script>
 
@@ -113,24 +109,14 @@
   /></svelte:head
 >
 <svelte:window onkeydown={shortcut} />
-{#if !quickSearchMode}
-  <header class="global-nav" aria-label="应用信息">
-    <span>KnowToSay</span>
-    <span
-      >{app.workspace
-        ? `${app.workspace.name} · ${app.admin ? '管理模式' : '使用模式'}`
-        : '话术与知识库'}</span
-    >
-  </header>
-{/if}
 {#if quickSearchMode}<QuickSearch />
 {:else if app.loading}<div class="boot-screen">
-    <div class="brand-mark">K<span></span></div>
+    <img class="brand-mark" src="/icon.svg" alt="KnowToSay" />
     <LoaderCircle class="spin" size={22} />
     <p>正在打开本地资料库…</p>
   </div>
 {:else if !app.data}<div class="boot-screen">
-    <div class="brand-mark">K<span></span></div>
+    <img class="brand-mark" src="/icon.svg" alt="KnowToSay" />
     <h1>连接本地资料库</h1>
     <p class="muted">请启动 KnowToSay 本地服务后重试。</p>
     <button class="button primary" onclick={() => app.start()}
@@ -148,26 +134,20 @@
             event.preventDefault();
             navigate('workbench');
           }}
-          ><div class="brand-mark">K<span></span></div>
+          ><img class="brand-mark" src="/icon.svg" alt="KnowToSay" />
           <div>KnowToSay<small>让知识成为好回答</small></div></a
         >
-        <div class="workspace-switch">
-          <div class="workspace-avatar">{app.workspace.name.slice(0, 1)}</div>
-          <span
-            >{app.workspace.name}<small
-              >{app.admin ? '管理员工作空间' : '业务员工作空间'}</small
-            ></span
-          ><ChevronDown size={15} />
-        </div>
         <span class="nav-caption">工作空间</span>
         <nav>
           {#each navigation as item}{@const Icon = item.icon}<button
+              aria-label={item.name}
+              title={item.name}
               class:active={app.nav === item.id && !app.query}
+              aria-current={app.nav === item.id && !app.query
+                ? 'page'
+                : undefined}
               onclick={() => navigate(item.id)}
-              ><Icon size={19} strokeWidth={1.65} /><span
-                >{item.id === 'sync' && !app.admin
-                  ? '资料同步'
-                  : item.name}</span
+              ><Icon size={19} strokeWidth={1.65} /><span>{item.name}</span
               >{#if item.id === 'scripts'}<small>{app.nodes.length}</small
                 >{/if}</button
             >{/each}
@@ -188,7 +168,11 @@
           </div>
         </div>
       </aside>{/if}
-    <div class="main-shell">
+    <div
+      class="main-shell"
+      class:full-shell-hidden={app.compact}
+      inert={app.compact}
+    >
       <header class="topbar">
         <div class="global-search">
           <Search size={18} /><input
@@ -205,22 +189,8 @@
               onclick={() => (app.query = '')}><X size={15} /></button
             >{:else if !app.compact}<kbd>Ctrl K</kbd>{/if}
         </div>
+        <SearchScopePicker bind:scope={app.searchScope} />
         <div class="topbar-actions">
-          {#if app.compact}<label class="compact-page-picker">
-              <span class="visually-hidden">页面导航</span>
-              <select
-                aria-label="悬浮窗导航"
-                value={app.nav}
-                onchange={(event) => {
-                  if (!navigate(event.currentTarget.value))
-                    event.currentTarget.value = app.nav;
-                }}
-              >
-                {#each navigation as item}<option value={item.id}
-                    >{item.name}</option
-                  >{/each}
-              </select>
-            </label>{/if}
           <label class="language-picker"
             ><span>{app.compact ? '' : '发送语言'}</span><select
               bind:value={app.language}
@@ -246,13 +216,6 @@
         </div>
       </header>
       <main class:workbench-main={app.nav === 'workbench' && !app.query}>
-        {#if app.compact}<div class="compact-heading">
-            <strong
-              >{navigation.find((item) => item.id === app.nav)?.name ||
-                'KnowToSay'}</strong
-            >
-            <span>{native() ? '置顶悬浮窗' : '精简布局预览'}</span>
-          </div>{/if}
         {#if app.query.trim()}<SearchResults />
         {:else}
           {#if !app.compact && app.nav === 'workbench'}<div
@@ -275,7 +238,6 @@
           {#if app.nav === 'workbench'}<Workbench />
           {:else if app.nav === 'scripts'}<ScriptsPage />
           {:else if app.nav === 'library'}<LibraryPage />
-          {:else if app.nav === 'sync'}<SyncPage />
           {:else}<SettingsPage />{/if}
         {/if}
       </main>
@@ -296,6 +258,7 @@
         >
       </footer>
     </div>
+    {#if app.compact}<CompactWorkbench />{/if}
   </div>
 {/if}
 {#if app.error}<div class="notification error" role="alert">
@@ -313,3 +276,5 @@
     >
   </div>{/if}
 {#if app.selectedMaterialId}<MaterialDialog />{/if}
+
+{#if app.replyId}<ReplyDialog />{/if}
