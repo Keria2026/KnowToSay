@@ -17,4 +17,4 @@ export type MaterialSearchResult =
 export type SheetPage = components['schemas']['SheetPage'];
 export type DesktopPreferences = components['schemas']['DesktopPreferences'];
 export type DesktopStatus = components['schemas']['DesktopStatus'];
-export type SearchPanelMode = components['schemas']['SearchPanelMode'];
+export type SearchLaunchScope = components['schemas']['SearchLaunchScope'];

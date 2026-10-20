@@ -2,69 +2,33 @@
   import { onMount, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
-  import {
-    Search,
-    X,
-    ArrowUpRight,
-    Copy,
-    MessageSquare,
-    FileText,
-    ArrowLeft,
-  } from 'lucide-svelte';
+  import { Search, X, ArrowUpRight, Copy, ArrowLeft } from 'lucide-svelte';
   import { app } from './store.svelte';
-  import { api, native, copyText } from './api';
+  import { native, copyText } from './api';
   import {
-    searchScripts,
     replyPreview,
     languageName,
-    kindName,
     scriptKindName,
     replyVariables,
-    quickCategoryName,
   } from '$lib/utils/scripts';
   import type {
     NodeRecord,
-    MaterialSearchResult,
     DesktopStatus,
-    SearchPanelMode,
+    SearchLaunchScope,
   } from '$lib/types';
   import './quick-search.css';
   import SearchScopePicker from './SearchScopePicker.svelte';
-  import { scopedScripts, scopedMaterials, globalScope } from './search';
+  import { SearchResultsModel } from './search-results.svelte';
   import ScriptResult from '../scripts/ScriptResult.svelte';
   import MaterialResult from '../knowledge/MaterialResult.svelte';
   import BilingualReplies from '../scripts/BilingualReplies.svelte';
   let query = $state('');
-  let mode = $state<SearchPanelMode>('search');
-  let visibleLimit = $state(50);
   let selected = $state<NodeRecord | null>(null);
   let values = $state<Record<string, string>>({});
-  let materials = $state<MaterialSearchResult[]>([]);
-  let searching = $state(false);
   let activeIndex = $state(0);
   let input: HTMLInputElement;
   let copyHides = true;
-  let quickScripts = $derived(
-    searchScripts(
-      app.nodes.filter(
-        (r) =>
-          r.node.kind === 'quick' &&
-          (!app.quickCategory ||
-            quickCategoryName(r.node) === app.quickCategory),
-      ),
-      query,
-    ),
-  );
-  let scripts = $derived(
-    mode === 'quick'
-      ? quickScripts.slice(0, visibleLimit)
-      : query.trim()
-        ? searchScripts(scopedScripts(app.nodes, app.searchScope), query).slice(
-            0,
-            50,
-          )
-        : [],
-  );
+  const results = new SearchResultsModel(() => query);
   let preview = $derived(
     selected ? replyPreview(selected.node, app.language, values) : null,
   );
@@ -77,76 +41,42 @@
     activeIndex = 0;
   });
   $effect(() => {
-    const q = query.trim();
-    const scope = app.searchScope;
-    let active = true;
-    if (
-      mode === 'quick' ||
-      !q ||
-      !app.workspace ||
-      !['all', 'library'].includes(scope.area)
-    ) {
-      materials = [];
-      searching = false;
-      return;
-    }
-    searching = true;
-    const timer = setTimeout(() => {
-      api<MaterialSearchResult[]>(
-        `/search/materials?q=${encodeURIComponent(q)}${scope.area === 'library' && scope.group ? `&category=${encodeURIComponent(scope.group)}` : ''}`,
-      )
-        .then((result) => {
-          if (active) materials = scopedMaterials(result, scope).slice(0, 50);
-        })
-        .catch((e) => {
-          if (active) app.error = String(e);
-        })
-        .finally(() => {
-          if (active) searching = false;
-        });
-    }, 120);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  });
-  $effect(() => {
     if (native())
       void invoke('resize_search', {
-        expanded: mode === 'quick' || !!query.trim() || !!selected,
+        expanded:
+          app.searchScope.area === 'quick' || !!query.trim() || !!selected,
       }).catch((e) => (app.error = String(e)));
   });
   onMount(() => {
-    if (new URLSearchParams(window.location.search).get('panel') === 'quick')
-      mode = 'quick';
+    app.searchScope = {
+      area:
+        new URLSearchParams(window.location.search).get('scope') === 'quick'
+          ? 'quick'
+          : 'all',
+      group: '',
+    };
     void tick().then(() => input?.focus());
     if (!native()) return;
-    const setup = listen<SearchPanelMode>(
-      'quick-search-open',
-      async (event) => {
-        mode = event.payload;
-        app.searchScope = globalScope();
-        app.quickCategory = '';
-        visibleLimit = 50;
-        query = '';
-        selected = null;
-        values = {};
-        activeIndex = 0;
-        await app.refresh();
-        try {
-          copyHides = (await invoke<DesktopStatus>('desktop_status'))
-            .preferences.copyHides;
-        } catch (e) {
-          app.error = String(e);
-        }
-        await tick();
-        input?.focus();
-      },
-    );
+    const setup = listen<SearchLaunchScope>('search-open', async (event) => {
+      app.searchScope = { area: event.payload, group: '' };
+      query = '';
+      selected = null;
+      values = {};
+      activeIndex = 0;
+      await app.refresh();
+      try {
+        copyHides = (await invoke<DesktopStatus>('desktop_status')).preferences
+          .copyHides;
+      } catch (e) {
+        app.error = String(e);
+      }
+      await tick();
+      input?.focus();
+    });
     void invoke<DesktopStatus>('desktop_status')
       .then((status) => {
         copyHides = status.preferences.copyHides;
-        mode = status.searchMode;
+        app.searchScope = { area: status.searchLaunchScope, group: '' };
       })
       .catch((e) => (app.error = String(e)));
     return () => {
@@ -170,25 +100,13 @@
     await copyReply(preview.text);
   }
   async function copyReply(text: string) {
-    await app.task('复制回复', () => copyText(text));
-    if (!app.error) {
+    const copied = await app.task('复制回复', async () => {
+      await copyText(text);
+      return true;
+    });
+    if (copied) {
       if (native() && copyHides) await close();
       else app.notify('已复制回复');
-    }
-  }
-  function switchMode(next: SearchPanelMode) {
-    if (native()) {
-      void invoke(
-        next === 'quick' ? 'open_quick_replies' : 'open_search',
-      ).catch((e) => (app.error = String(e)));
-    } else {
-      mode = next;
-      app.searchScope = globalScope();
-      app.quickCategory = '';
-      query = '';
-      selected = null;
-      visibleLimit = 50;
-      activeIndex = 0;
     }
   }
   function keyboard(event: KeyboardEvent) {
@@ -197,7 +115,7 @@
       void close();
     }
     if (event.target !== input || selected) return;
-    const count = scripts.length + materials.length;
+    const count = results.visibleScripts.length + results.materials.length;
     if (event.key === 'ArrowDown' && count) {
       event.preventDefault();
       activeIndex = (activeIndex + 1) % count;
@@ -208,14 +126,17 @@
     }
     if (event.key === 'Enter' && count) {
       event.preventDefault();
-      if (activeIndex < scripts.length) {
-        const record = scripts[activeIndex];
+      if (activeIndex < results.visibleScripts.length) {
+        const record = results.visibleScripts[activeIndex];
         const ready = replyPreview(record.node, app.language, {});
         if (ready.ready) void copyReply(ready.text);
         else select(record);
-      } else
-        app.selectedMaterialId =
-          materials[activeIndex - scripts.length].material.id;
+      } else {
+        const hit =
+          results.materials[activeIndex - results.visibleScripts.length];
+        app.materialQuery = hit.rows.length ? query : '';
+        app.selectedMaterialId = hit.material.id;
+      }
     }
   }
 </script>
@@ -233,7 +154,7 @@
         activeIndex = 0;
       }}
       aria-label="独立搜索栏"
-      placeholder={mode === 'quick'
+      placeholder={app.searchScope.area === 'quick'
         ? '搜索客户问题或快捷回复…'
         : '搜索话术、素材、表格内容…'}
       autocomplete="off"
@@ -245,14 +166,12 @@
       ><X size={18} /></button
     >
   </header>
-  {#if mode === 'search'}<SearchScopePicker bind:scope={app.searchScope} />{/if}
+  <SearchScopePicker bind:scope={app.searchScope} />
   {#if selected}
     <section class="quick-search-detail">
       <div class="section-title">
         <button class="text-button" onclick={() => (selected = null)}
-          ><ArrowLeft size={14} />返回{mode === 'quick'
-            ? '回复表'
-            : '结果'}</button
+          ><ArrowLeft size={14} />返回结果</button
         ><button class="text-button" onclick={() => openMain(selected!.node.id)}
           >在工作台打开<ArrowUpRight size={14} /></button
         >
@@ -290,82 +209,48 @@
         >
       </div>
     </section>
-  {:else if mode === 'quick'}
-    <div class="quick-reply-heading">
-      <div>
-        <h2>快捷话术回复表</h2>
-        <p class="field-help">
-          {quickScripts.length} 条问答 · {languageName(app.language)}
-        </p>
-      </div>
-      <button class="text-button" onclick={() => switchMode('search')}
-        >全库搜索<ArrowUpRight size={14} /></button
-      >
-    </div>
-    <div class="quick-reply-list">
-      <select aria-label="快捷回复分类" bind:value={app.quickCategory}
-        ><option value="">全部分类</option
-        >{#each app.quickGroups as group}<option value={group.id}
-            >{group.name}</option
-          >{/each}</select
-      >
-      {#each scripts as record, i (record.node.id)}<ScriptResult
-          {record}
-          active={activeIndex === i}
-          oncopy={copyReply}
-          ondetail={() => select(record)}
-        />{/each}
-      {#if !scripts.length}<div class="empty small">
-          <p>没有匹配的快捷话术。</p>
-        </div>{/if}
-      {#if quickScripts.length > visibleLimit}<button
-          class="text-button"
-          onclick={() => (visibleLimit += 50)}
-          >显示更多（已显示 {scripts.length} / {quickScripts.length}）</button
-        >{/if}
-    </div>
-    <footer class="quick-search-hint">
-      <span>选择后复制 · Esc 收起</span><button
-        class="text-button"
-        onclick={() => openMain()}
-        >打开完整工作台<ArrowUpRight size={13} /></button
-      >
-    </footer>
-  {:else if !query.trim()}<footer class="quick-search-hint">
-      <span>{app.workspace ? app.workspace.name : '请先创建或加入工作组'}</span
-      ><button class="text-button" onclick={() => switchMode('quick')}
-        >快捷话术回复表</button
-      >
-    </footer>
+  {:else if !query.trim() && app.searchScope.area !== 'quick'}
+    <p class="quick-search-hint">输入关键词搜索，或选择快捷话术直接浏览。</p>
   {:else}
     <div class="quick-search-results">
-      {#if scripts.length}<div class="section-label">
+      {#if results.visibleScripts.length}<div class="section-label">
           话术 · 可直接复制
         </div>{/if}
-      {#each scripts as record, i (record.node.id)}<ScriptResult
+      {#each results.visibleScripts as record, i (record.node.id)}<ScriptResult
           {record}
           active={activeIndex === i}
           oncopy={copyReply}
           ondetail={() => select(record)}
         />{/each}
-      {#if materials.length}<div class="section-label">素材与表格</div>{/if}
-      {#each materials as hit, i (hit.material.id)}<MaterialResult
+      {#if results.materials.length}<div class="section-label">
+          素材与表格
+        </div>{/if}
+      {#each results.materials as hit, i (hit.material.id)}<MaterialResult
           {hit}
           {query}
-          active={activeIndex === scripts.length + i}
+          active={activeIndex === results.visibleScripts.length + i}
         />{/each}
-      {#if searching}<p class="field-help">
+      {#if results.loading}<p class="field-help">
           正在搜索本地知识库…
-        </p>{:else if !scripts.length && !materials.length}<div
+        </p>{:else if results.error}<p class="info-note" role="alert">
+          {results.error}
+        </p>{:else if !results.visibleScripts.length && !results.materials.length}<div
           class="empty small"
         >
           <Search size={30} />
           <p>没有匹配内容，试试问题关键词或产品型号。</p>
         </div>{/if}
+      {#if results.scripts.length > results.limit}<button
+          class="text-button"
+          onclick={() => (results.limit += 50)}
+          >显示更多话术（已显示 {results.visibleScripts.length} / {results
+            .scripts.length}）</button
+        >{/if}
     </div>
     <footer class="quick-search-hint">
       <span
-        >{scripts.length + materials.length} 个结果（最多展示各类 50 项）</span
+        >{results.scripts.length} 条话术 · {results.materials.length} 份素材 · Esc
+        收起</span
       ><button class="text-button" onclick={() => openMain()}
         >打开完整工作台<ArrowUpRight size={13} /></button
       >

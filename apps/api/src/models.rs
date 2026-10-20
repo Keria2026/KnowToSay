@@ -269,14 +269,14 @@ pub struct DesktopStatus {
     pub preferences: DesktopPreferences,
     pub shortcut_registered: bool,
     pub warning: Option<String>,
-    pub search_mode: SearchPanelMode,
+    pub search_launch_scope: SearchLaunchScope,
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, ToSchema, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum SearchPanelMode {
+pub enum SearchLaunchScope {
     #[default]
-    Search,
+    All,
     Quick,
 }
 

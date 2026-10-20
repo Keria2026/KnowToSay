@@ -1,6 +1,6 @@
 use knowtosay::{
     db::AppState,
-    models::{DesktopPreferences, DesktopStatus, SearchPanelMode},
+    models::{DesktopPreferences, DesktopStatus, SearchLaunchScope},
 };
 use std::sync::{
     Mutex,
@@ -20,7 +20,7 @@ pub struct DesktopController {
     pub shortcut_registered: AtomicBool,
     pub warning: Mutex<Option<String>>,
     pub previous_window: AtomicIsize,
-    pub search_mode: Mutex<SearchPanelMode>,
+    pub search_launch_scope: Mutex<SearchLaunchScope>,
     pub search_expanded: AtomicBool,
     pub main_bounds: Mutex<Option<MainWindowBounds>>,
 }
@@ -34,23 +34,13 @@ pub fn show_main(app: &tauri::AppHandle) {
 }
 
 pub fn show_search(app: &tauri::AppHandle) {
-    show_panel(app, SearchPanelMode::Search)
-}
-
-pub fn show_quick_replies(app: &tauri::AppHandle) {
-    show_panel(app, SearchPanelMode::Quick)
+    show_panel(app, SearchLaunchScope::All)
 }
 
 pub fn toggle_search(app: &tauri::AppHandle) {
-    let quick = app.try_state::<DesktopController>().is_some_and(|c| {
-        c.search_mode
-            .lock()
-            .is_ok_and(|m| *m == SearchPanelMode::Quick)
-    });
-    if !quick
-        && app
-            .get_webview_window("search")
-            .is_some_and(|w| w.is_visible().unwrap_or(false))
+    if app
+        .get_webview_window("search")
+        .is_some_and(|w| w.is_visible().unwrap_or(false))
     {
         hide_search(app);
     } else {
@@ -74,13 +64,13 @@ pub fn fitted_size(window: &tauri::WebviewWindow, target: (f64, f64)) -> tauri::
     tauri::LogicalSize::new(width, height)
 }
 
-fn show_panel(app: &tauri::AppHandle, mode: SearchPanelMode) {
+fn show_panel(app: &tauri::AppHandle, scope: SearchLaunchScope) {
     let Some(window) = app.get_webview_window("search") else {
         return;
     };
     if let Some(control) = app.try_state::<DesktopController>() {
-        if let Ok(mut current) = control.search_mode.lock() {
-            *current = mode;
+        if let Ok(mut current) = control.search_launch_scope.lock() {
+            *current = scope;
         }
         #[cfg(windows)]
         {
@@ -98,13 +88,13 @@ fn show_panel(app: &tauri::AppHandle, mode: SearchPanelMode) {
     if let Some(control) = app.try_state::<DesktopController>() {
         control
             .search_expanded
-            .store(mode == SearchPanelMode::Quick, Ordering::Relaxed);
+            .store(scope == SearchLaunchScope::Quick, Ordering::Relaxed);
     }
     let _ = window.set_size(fitted_size(
         &window,
         (
             720.0,
-            if mode == SearchPanelMode::Quick {
+            if scope == SearchLaunchScope::Quick {
                 560.0
             } else {
                 190.0
@@ -123,7 +113,7 @@ fn show_panel(app: &tauri::AppHandle, mode: SearchPanelMode) {
     let _ = window.center();
     let _ = window.show();
     let _ = window.set_focus();
-    let _ = window.emit("quick-search-open", mode);
+    let _ = window.emit("search-open", scope);
 }
 
 pub fn hide_search(app: &tauri::AppHandle) {
@@ -148,10 +138,6 @@ pub fn hide_search(app: &tauri::AppHandle) {
 #[tauri::command]
 pub fn open_search(app: tauri::AppHandle) {
     show_search(&app)
-}
-#[tauri::command]
-pub fn open_quick_replies(app: tauri::AppHandle) {
-    show_quick_replies(&app)
 }
 #[tauri::command]
 pub fn close_search(app: tauri::AppHandle) {
@@ -190,7 +176,10 @@ pub fn desktop_status(app: tauri::AppHandle) -> Result<DesktopStatus, String> {
             .clone(),
         shortcut_registered: control.shortcut_registered.load(Ordering::Relaxed),
         warning: control.warning.lock().map_err(|e| e.to_string())?.clone(),
-        search_mode: *control.search_mode.lock().map_err(|e| e.to_string())?,
+        search_launch_scope: *control
+            .search_launch_scope
+            .lock()
+            .map_err(|e| e.to_string())?,
     })
 }
 #[tauri::command]
@@ -265,7 +254,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ),
         warning: Mutex::new(warning),
         previous_window: AtomicIsize::new(0),
-        search_mode: Mutex::new(SearchPanelMode::Search),
+        search_launch_scope: Mutex::new(SearchLaunchScope::All),
         search_expanded: AtomicBool::new(false),
         main_bounds: Mutex::new(None),
     });
@@ -435,7 +424,7 @@ fn start_edge_watcher(app: tauri::AppHandle) {
             }
             if !fired && since.elapsed().as_millis() >= preferences.dwell_ms as u128 {
                 fired = true;
-                show_quick_replies(&app);
+                show_panel(&app, SearchLaunchScope::Quick);
             }
         }
     });

@@ -57,7 +57,7 @@ use utoipa::OpenApi;
         http::ImportScripts,
         DesktopPreferences,
         DesktopStatus,
-        SearchPanelMode
+        SearchLaunchScope
     ))
 )]
 pub struct ApiDoc;

@@ -53,7 +53,7 @@
   <span class="card-icon"><Keyboard size={24} /></span>
   <h3>托盘与快捷搜索</h3>
   <p class="muted">
-    最小化或关闭工作台后常驻托盘。指定边缘唤出快捷话术回复表，快捷键默认打开全局搜索，可在搜索栏选择流程、快捷话术或知识库范围，保留原来的话术流程位置。
+    最小化或关闭工作台后常驻托盘。边缘与快捷键唤出同一个搜索栏；边缘默认选中快捷话术，快捷键默认选中全局搜索，可切换流程、快捷话术或知识库范围，保留原来的话术流程位置。
   </p>
   {#if !native()}<p class="field-help">
       这些功能在桌面客户端中启用。可在浏览器预览独立搜索界面。
@@ -65,9 +65,9 @@
       rel="noreferrer">预览独立搜索栏</a
     ><a
       class="button secondary"
-      href="/?quickSearch=1&panel=quick"
+      href="/?quickSearch=1&scope=quick"
       target="_blank"
-      rel="noreferrer">预览快捷话术表</a
+      rel="noreferrer">预览边缘唤出搜索</a
     >{:else if status}<label
       >全局快捷键（留空关闭）<input
         bind:value={status.preferences.shortcut}
@@ -93,7 +93,7 @@
     {#if status.warning}<p class="info-note">{status.warning}</p>{/if}
     <div class="desktop-edges">
       <span class="section-label"
-        >工作台已收起时，在哪些边缘停留唤出快捷话术表</span
+        >工作台已收起时，在哪些边缘停留唤出快捷话术搜索</span
       >
       <div class="button-row">
         {#each [['left', '左边缘'], ['right', '右边缘'], ['top', '上边缘'], ['bottom', '下边缘']] as [edge, label]}<label

@@ -376,7 +376,7 @@ export interface components {
         };
         DesktopStatus: {
             preferences: components["schemas"]["DesktopPreferences"];
-            searchMode: components["schemas"]["SearchPanelMode"];
+            searchLaunchScope: components["schemas"]["SearchLaunchScope"];
             shortcutRegistered: boolean;
             warning?: string | null;
         };
@@ -472,7 +472,7 @@ export interface components {
             variables: components["schemas"]["Variable"][];
         };
         /** @enum {string} */
-        SearchPanelMode: "search" | "quick";
+        SearchLaunchScope: "all" | "quick";
         SheetPage: {
             /** Format: int32 */
             columnCount: number;

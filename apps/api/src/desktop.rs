@@ -212,7 +212,6 @@ fn main() {
             reveal_material,
             window_mode,
             desktop_support::open_search,
-            desktop_support::open_quick_replies,
             desktop_support::close_search,
             desktop_support::resize_search,
             desktop_support::open_script,

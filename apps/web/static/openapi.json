@@ -803,14 +803,14 @@
         "required": [
           "preferences",
           "shortcutRegistered",
-          "searchMode"
+          "searchLaunchScope"
         ],
         "properties": {
           "preferences": {
             "$ref": "#/components/schemas/DesktopPreferences"
           },
-          "searchMode": {
-            "$ref": "#/components/schemas/SearchPanelMode"
+          "searchLaunchScope": {
+            "$ref": "#/components/schemas/SearchLaunchScope"
           },
           "shortcutRegistered": {
             "type": "boolean"
@@ -1205,10 +1205,10 @@
           }
         }
       },
-      "SearchPanelMode": {
+      "SearchLaunchScope": {
         "type": "string",
         "enum": [
-          "search",
+          "all",
           "quick"
         ]
       },
