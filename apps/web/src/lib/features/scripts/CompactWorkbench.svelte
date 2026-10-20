@@ -8,6 +8,7 @@
     replyVariables,
     quickCategoryName,
   } from '$lib/utils/scripts';
+  import { folderPath, folderOf, libraryItems } from '../knowledge/folders';
   import SearchScopePicker from '../workspace/SearchScopePicker.svelte';
   import SearchResults from '../workspace/SearchResults.svelte';
   import ScriptResult from './ScriptResult.svelte';
@@ -36,19 +37,15 @@
     node ? replyPreview(node, app.language, app.values) : null,
   );
   let materials = $derived(
-    app.materials.filter(
+    libraryItems(app.materials).filter(
       (m) =>
         (materialKind === 'all' || m.kind === materialKind) &&
-        (!category || (m.category.trim() || '未分类') === category),
+        (!category || folderOf(m, app.folders) === category),
     ),
   );
-  let categories = $derived([
-    ...new Set([
-      '未分类',
-      ...(app.data?.materialCategories ?? []),
-      ...app.materials.map((m) => m.category.trim() || '未分类'),
-    ]),
-  ]);
+  let categories = $derived(
+    app.folders.map((f) => ({ id: f.id, name: folderPath(app.folders, f.id) })),
+  );
   onMount(() => {
     if (section === 'flow' && node?.flowId !== app.activeFlowId)
       chooseGroup(app.activeFlowId);
@@ -247,14 +244,17 @@
         </div>
       {:else}<div class="compact-library-filters">
           <select aria-label="素材类型" bind:value={materialKind}
-            ><option value="all">全部素材</option><option value="text"
-              >文字</option
-            ><option value="image">图片</option><option value="video"
-              >视频</option
-            ><option value="excel">表格</option></select
-          ><select aria-label="素材分类" bind:value={category}
-            ><option value="">全部分类</option>{#each categories as name}<option
-                value={name}>{name}</option
+            ><option value="all">全部素材</option><option value="case"
+              >案例</option
+            ><option value="text">文字</option><option value="image"
+              >图片</option
+            ><option value="video">视频</option><option value="excel"
+              >表格</option
+            ></select
+          ><select aria-label="素材文件夹" bind:value={category}
+            ><option value="">全部文件夹</option
+            >{#each categories as folder}<option value={folder.id}
+                >{folder.name}</option
               >{/each}</select
           >
         </div>

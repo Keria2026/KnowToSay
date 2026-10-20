@@ -13,6 +13,14 @@ pub async fn search_filtered(
     query: &str,
     category: Option<&str>,
 ) -> Result<Vec<MaterialSearchResult>> {
+    search_folder(state, query, category, None).await
+}
+pub async fn search_folder(
+    state: &AppState,
+    query: &str,
+    category: Option<&str>,
+    folder: Option<&str>,
+) -> Result<Vec<MaterialSearchResult>> {
     let query = query.trim().to_lowercase();
     if query.is_empty() {
         return Ok(vec![]);
@@ -26,6 +34,31 @@ pub async fn search_filtered(
     } else {
         "official_materials"
     };
+    let folders = state
+        .list::<Folder>(if admin {
+            "draft_folders"
+        } else {
+            "official_folders"
+        })
+        .await?;
+    let mut folder_ids = std::collections::BTreeSet::new();
+    if let Some(id) = folder {
+        folder_ids.insert(id.to_owned());
+        loop {
+            let before = folder_ids.len();
+            for f in &folders {
+                if f.parent_id
+                    .as_ref()
+                    .is_some_and(|parent| folder_ids.contains(parent))
+                {
+                    folder_ids.insert(f.id.clone());
+                }
+            }
+            if before == folder_ids.len() {
+                break;
+            }
+        }
+    }
     let source = if admin { "draft" } else { "official" };
     let (sql, argument) = if query.chars().count() >= 3 {
         (
@@ -46,6 +79,14 @@ pub async fn search_filtered(
     let mut results = Vec::new();
     while let Some(json) = stream.try_next().await? {
         let mut material: Material = serde_json::from_str(&json)?;
+        if folder.is_some()
+            && !material
+                .folder_id
+                .as_ref()
+                .is_some_and(|id| folder_ids.contains(id))
+        {
+            continue;
+        }
         if category.is_some_and(|c| {
             c != if material.category.trim().is_empty() {
                 "未分类"

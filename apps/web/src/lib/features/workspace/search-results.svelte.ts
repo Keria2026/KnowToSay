@@ -18,7 +18,9 @@ export class SearchResultsModel {
       : [];
   });
   visibleScripts = $derived(this.scripts.slice(0, this.limit));
-  materials = $derived(scopedMaterials(this.hits, app.searchScope));
+  materials = $derived(
+    scopedMaterials(this.hits, app.searchScope, app.folders),
+  );
 
   constructor(private query: () => string) {
     $effect(() => {
@@ -35,7 +37,7 @@ export class SearchResultsModel {
       this.loading = true;
       const category =
         scope.area === 'library' && scope.group
-          ? `&category=${encodeURIComponent(scope.group)}`
+          ? `&folder=${encodeURIComponent(scope.group)}`
           : '';
       const timer = setTimeout(() => {
         api<MaterialSearchResult[]>(

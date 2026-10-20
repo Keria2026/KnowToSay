@@ -5,6 +5,7 @@
   import type { NodeRecord } from '$lib/types';
   import { app } from '../workspace/store.svelte';
   import { native } from '../workspace/api';
+  import MaterialResult from '../knowledge/MaterialResult.svelte';
   import { languageName, replyPreview } from '$lib/utils/scripts';
   import FlowCanvas from './FlowCanvas.svelte';
 
@@ -185,9 +186,15 @@
             </div>
           </div>{/if}
         <div class="section-label">关联素材 · {node.materialIds.length}</div>
-        {#each node.materialIds as id}<p class="field-help">
-            {app.materials.find((m) => m.id === id)?.name || '素材已移除'}
-          </p>{/each}
+        {#each node.materialIds as id}{@const material = app.materials.find(
+            (m) => m.id === id,
+          )}
+          {#if material}<MaterialResult hit={{ material, rows: [] }} />{:else}<p
+              class="field-help"
+            >
+              素材已移除
+            </p>{/if}
+        {/each}
         <button
           class="button secondary"
           onclick={async () => {

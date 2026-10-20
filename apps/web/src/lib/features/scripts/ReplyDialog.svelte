@@ -7,15 +7,18 @@
     replyVariables,
     languageName,
   } from '$lib/utils/scripts';
+  import MaterialResult from '../knowledge/MaterialResult.svelte';
+  import ReplySelector from './ReplySelector.svelte';
   import BilingualReplies from './BilingualReplies.svelte';
   let dialog: HTMLDialogElement;
+  let replyId = $state(app.replyOptionId);
   let values = $state<Record<string, string>>({});
   let record = $derived(app.nodes.find((r) => r.node.id === app.replyId));
   let preview = $derived(
-    record ? replyPreview(record.node, app.language, values) : null,
+    record ? replyPreview(record.node, app.language, values, replyId) : null,
   );
   let variables = $derived(
-    record ? replyVariables(record.node, app.language) : [],
+    record ? replyVariables(record.node, app.language, replyId) : [],
   );
   onMount(() => {
     dialog.showModal();
@@ -38,7 +41,10 @@
   </header>
   {#if record}<div class="reply-dialog-body">
       <p class="muted">{record.node.question}</p>
-      <BilingualReplies node={record.node} />{#each variables as variable}<label
+      <ReplySelector node={record.node} bind:replyId /><BilingualReplies
+        node={record.node}
+        {replyId}
+      />{#each variables as variable}<label
           >{variable.label || variable.name}{variable.required
             ? ' *'
             : ''}<input
@@ -55,6 +61,15 @@
           ? `待填写：${preview.missing.join('、')}`
           : '确认后复制发送'}
       </p>
+      {#if record.node.materialIds.length}<div class="linked-materials">
+          <h3>关联素材</h3>
+          {#each record.node.materialIds as id}{@const material =
+              app.materials.find((m) => m.id === id)}
+            {#if material}<MaterialResult
+                hit={{ material, rows: [] }}
+              />{:else}<p class="field-help">素材已移除</p>{/if}
+          {/each}
+        </div>{/if}
       <div class="button-row">
         <button
           class="button primary"

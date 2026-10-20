@@ -103,6 +103,7 @@ impl AppState {
                 nodes: vec![],
                 flows: vec![],
                 materials: vec![],
+                folders: vec![],
                 material_categories: vec![],
                 quick_categories: vec![],
                 manageable_quick_categories: vec![],
@@ -154,7 +155,9 @@ impl AppState {
                 || flows != self.list::<Flow>("official_flows").await?
                 || n != official
                 || m != self.list::<Material>("official_materials").await?
-                || categories != official_categories;
+                || categories != official_categories
+                || self.list::<Folder>("draft_folders").await?
+                    != self.list::<Folder>("official_folders").await?;
             (n, m, categories, dirty)
         } else {
             (
@@ -195,10 +198,17 @@ impl AppState {
             material.rows.truncate(150);
         }
         Ok(Snapshot {
-            workspace: Some(workspace),
+            workspace: Some(workspace.clone()),
             nodes: map.into_values().collect(),
             flows,
             materials,
+            folders: self
+                .list(if workspace.role == Role::Admin {
+                    "draft_folders"
+                } else {
+                    "official_folders"
+                })
+                .await?,
             material_categories,
             quick_categories,
             manageable_quick_categories,
@@ -226,6 +236,19 @@ impl AppState {
         .await?;
         if result.rows_affected() == 0 {
             return Err(Error::conflict("此分类已存在"));
+        }
+        if !self
+            .list::<Folder>("draft_folders")
+            .await?
+            .iter()
+            .any(|f| f.parent_id.is_none() && f.name == name)
+        {
+            let folder = Folder {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: name.into(),
+                parent_id: None,
+            };
+            self.put("draft_folders", &folder.id, &folder).await?;
         }
         Ok(())
     }
@@ -491,8 +514,10 @@ impl AppState {
             sqlx::query_scalar("SELECT json FROM releases ORDER BY version DESC LIMIT 1")
                 .fetch_optional(&self.pool)
                 .await?;
-        serde_json::from_str(&json.ok_or_else(|| Error::conflict("管理员尚未发布资料"))?)
-            .map_err(Error::from)
+        crate::folders::decode_manifest(
+            json.ok_or_else(|| Error::conflict("管理员尚未发布资料"))?
+                .as_bytes(),
+        )
     }
     pub async fn prune_dependencies(&self) -> Result<()> {
         let personal = self.list::<ScriptNode>("personal_nodes").await?;
@@ -554,6 +579,7 @@ impl AppState {
         let nodes = self.list::<ScriptNode>("draft_nodes").await?;
         let materials = self.list::<Material>("draft_materials").await?;
         validate_manifest_content(&nodes, &materials)?;
+        crate::folders::validate(&self.list::<Folder>("draft_folders").await?, &materials)?;
         let flows = self.list::<Flow>("draft_flows").await?;
         validate_flow_membership(&nodes, &flows)?;
         let max: Option<i64> = sqlx::query_scalar("SELECT MAX(version) FROM releases")
@@ -568,10 +594,17 @@ impl AppState {
             nodes,
             flows,
             materials,
+            folders: self.list("draft_folders").await?,
             material_categories: self.list("draft_material_categories").await?,
             quick_categories: self.list("draft_quick_categories").await?,
         };
         let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM official_folders")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO official_folders SELECT * FROM draft_folders")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM official_quick_categories")
             .execute(&mut *tx)
             .await?;
@@ -621,6 +654,7 @@ impl AppState {
             return Err(Error::invalid("不支持此资料格式"));
         }
         validate_manifest_content(&manifest.nodes, &manifest.materials)?;
+        crate::folders::validate(&manifest.folders, &manifest.materials)?;
         validate_flow_membership(&manifest.nodes, &manifest.flows)?;
         let _guard = self.write.lock().await;
         let current = self.workspace().await?;
@@ -640,6 +674,16 @@ impl AppState {
             admin_address: Some(address.into()),
         };
         let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM official_folders")
+            .execute(&mut *tx)
+            .await?;
+        for folder in &manifest.folders {
+            sqlx::query("INSERT INTO official_folders(id,json) VALUES(?,?)")
+                .bind(&folder.id)
+                .bind(serde_json::to_string(folder)?)
+                .execute(&mut *tx)
+                .await?;
+        }
         sqlx::query("DELETE FROM official_quick_categories")
             .execute(&mut *tx)
             .await?;
@@ -695,7 +739,9 @@ impl AppState {
 
 fn checked_table(table: &str) -> Result<&str> {
     match table {
-        "draft_quick_categories"
+        "draft_folders"
+        | "official_folders"
+        | "draft_quick_categories"
         | "official_quick_categories"
         | "personal_quick_categories"
         | "draft_flows"
@@ -762,6 +808,21 @@ pub fn validate_node(n: &ScriptNode) -> Result<()> {
     if n.replies.len() > 50 || n.branches.len() > 200 || n.variables.len() > 100 {
         return Err(Error::invalid("话术内容超过限制"));
     }
+    if n.reply_options.len() > 49 || (n.kind != ScriptKind::Quick && !n.reply_options.is_empty()) {
+        return Err(Error::invalid("仅快捷话术支持多条回复，最多 50 条"));
+    }
+    let mut option_ids = BTreeSet::new();
+    for option in &n.reply_options {
+        if option.id.is_empty()
+            || option.id.len() > 100
+            || !option_ids.insert(&option.id)
+            || option.name.trim().is_empty()
+            || option.name.chars().count() > 80
+            || option.replies.len() > 50
+        {
+            return Err(Error::invalid("回复需要有效且不重复的标识及名称"));
+        }
+    }
     if n.kind == ScriptKind::Quick && (n.is_entry || !n.branches.is_empty()) {
         return Err(Error::invalid(
             "快捷话术不参与流程，请先取消流程入口并移除分支",
@@ -823,6 +884,18 @@ pub fn validate_manifest_content(nodes: &[ScriptNode], materials: &[Material]) -
         // Material tombstones are valid: removed material references remain visible as missing.
     }
     for m in materials {
+        let image_ids: BTreeSet<_> = m.image_ids.iter().collect();
+        if (m.kind != "case" && !m.image_ids.is_empty())
+            || m.image_ids.len() > 50
+            || image_ids.len() != m.image_ids.len()
+            || m.image_ids.iter().any(|id| {
+                materials
+                    .iter()
+                    .any(|image| image.id == *id && image.kind != "image")
+            })
+        {
+            return Err(Error::invalid("案例图片引用无效"));
+        }
         if m.id.is_empty() || m.name.trim().is_empty() {
             return Err(Error::invalid("素材标识和名称不能为空"));
         }

@@ -36,6 +36,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["save_folder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/folders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_folder"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/group": {
         parameters: {
             query?: never;
@@ -392,6 +424,11 @@ export interface components {
             id: string;
             name: string;
         };
+        Folder: {
+            id: string;
+            name: string;
+            parentId?: string | null;
+        };
         ImportScripts: {
             flowId?: string | null;
             mapping: {
@@ -405,6 +442,7 @@ export interface components {
         };
         Manifest: {
             flows?: components["schemas"]["Flow"][];
+            folders?: components["schemas"]["Folder"][];
             /** Format: int32 */
             formatVersion: number;
             groupId: string;
@@ -418,8 +456,10 @@ export interface components {
         };
         Material: {
             category: string;
+            folderId?: string | null;
             hash?: string | null;
             id: string;
+            imageIds?: string[];
             kind: string;
             mime: string;
             name: string;
@@ -445,6 +485,13 @@ export interface components {
             /** Format: double */
             y: number;
         };
+        ReplyOption: {
+            id: string;
+            name: string;
+            replies: {
+                [key: string]: string;
+            };
+        };
         RestoreRequest: {
             directory: string;
         };
@@ -468,6 +515,8 @@ export interface components {
             replies: {
                 [key: string]: string;
             };
+            /** @description Extra quick replies; the existing replies remain the default answer. */
+            replyOptions?: components["schemas"]["ReplyOption"][];
             title: string;
             variables: components["schemas"]["Variable"][];
         };
@@ -490,6 +539,7 @@ export interface components {
         Snapshot: {
             draftDirty: boolean;
             flows: components["schemas"]["Flow"][];
+            folders?: components["schemas"]["Folder"][];
             manageableQuickCategories?: string[];
             materialCategories?: string[];
             materials: components["schemas"]["Material"][];
@@ -566,6 +616,50 @@ export interface operations {
                 "application/json": components["schemas"]["Flow"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+        };
+    };
+    save_folder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Folder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Snapshot"];
+                };
+            };
+        };
+    };
+    delete_folder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -942,6 +1036,7 @@ export interface operations {
             query: {
                 q: string;
                 category?: string;
+                folder?: string;
             };
             header?: never;
             path?: never;

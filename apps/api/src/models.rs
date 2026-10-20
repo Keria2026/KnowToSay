@@ -61,10 +61,21 @@ pub struct ScriptNode {
     pub flow_id: Option<String>,
     pub is_entry: bool,
     pub replies: BTreeMap<String, String>,
+    /// Extra quick replies; the existing replies remain the default answer.
+    #[serde(default)]
+    pub reply_options: Vec<ReplyOption>,
     pub variables: Vec<Variable>,
     pub branches: Vec<Branch>,
     pub material_ids: Vec<String>,
     pub position: Option<Position>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplyOption {
+    pub id: String,
+    pub name: String,
+    pub replies: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, ToSchema, PartialEq)]
@@ -96,6 +107,10 @@ pub struct Material {
     pub name: String,
     pub kind: String,
     pub category: String,
+    #[serde(default)]
+    pub folder_id: Option<String>,
+    #[serde(default)]
+    pub image_ids: Vec<String>,
     pub tags: Vec<String>,
     pub notes: String,
     pub text: String,
@@ -103,6 +118,14 @@ pub struct Material {
     pub hash: Option<String>,
     pub size: u64,
     pub rows: Vec<SheetRow>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Folder {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -137,6 +160,8 @@ pub struct Snapshot {
     pub flows: Vec<Flow>,
     pub materials: Vec<Material>,
     #[serde(default)]
+    pub folders: Vec<Folder>,
+    #[serde(default)]
     pub material_categories: Vec<String>,
     #[serde(default)]
     pub quick_categories: Vec<String>,
@@ -156,6 +181,8 @@ pub struct Manifest {
     #[serde(default)]
     pub flows: Vec<Flow>,
     pub materials: Vec<Material>,
+    #[serde(default)]
+    pub folders: Vec<Folder>,
     #[serde(default)]
     pub material_categories: Vec<String>,
     #[serde(default)]

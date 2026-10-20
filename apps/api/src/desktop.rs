@@ -61,7 +61,11 @@ async fn import_files(
 }
 
 #[tauri::command]
-async fn material_path(state: tauri::State<'_, AppState>, id: String) -> Result<String, ApiError> {
+async fn material_path(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<String, ApiError> {
     let snapshot = state.snapshot().await.map_err(api_error)?;
     let m = snapshot
         .materials
@@ -74,7 +78,11 @@ async fn material_path(state: tauri::State<'_, AppState>, id: String) -> Result<
     if !knowtosay::db::valid_hash(&hash) {
         return Err(api_error(Error::invalid("素材引用无效")));
     }
-    Ok(state.root.join("blobs").join(hash).to_string_lossy().into())
+    let path = state.root.join("blobs").join(hash);
+    app.asset_protocol_scope()
+        .allow_file(&path)
+        .map_err(|e| api_error(Error::internal(e)))?;
+    Ok(path.to_string_lossy().into())
 }
 
 #[tauri::command]

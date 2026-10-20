@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'bun:test';
-import { replyPreview, searchLibrary } from './scripts';
+import {
+  replyPreview,
+  replyVariables,
+  searchLibrary,
+  searchScripts,
+  matchingReply,
+} from './scripts';
 import type { ScriptNode, Material } from '../types';
 const node: ScriptNode = {
   id: 'one',
@@ -74,5 +80,48 @@ describe('知识库表格搜索', () => {
     expect(results[0].rows[0].sheet).toBe('韩国区');
     expect(results[0].rows[0].row).toBe(19);
     expect(searchLibrary([m], '不存在')).toHaveLength(0);
+  });
+});
+
+describe('快捷话术多回复', () => {
+  const multi: ScriptNode = {
+    ...node,
+    kind: 'quick',
+    replyOptions: [
+      {
+        id: 'reassure',
+        name: '安抚客户',
+        replies: { 'zh-CN': '可以先了解情况', ko: '먼저 알아보세요' },
+      },
+      { id: 'ask', name: '询问产品', replies: { ko: '{产品名} 안내' } },
+    ],
+  };
+  it('只复制所选回复，不拼接默认内容或回退语言', () => {
+    expect(replyPreview(multi, 'ko', {}, 'reassure')).toMatchObject({
+      ready: true,
+      text: '먼저 알아보세요',
+    });
+    expect(replyPreview(multi, 'zh-CN', {}, 'ask')).toMatchObject({
+      ready: false,
+      languageMissing: true,
+      text: '',
+    });
+    expect(replyPreview(multi, 'ko', {}, 'removed')).toMatchObject({
+      ready: false,
+      languageMissing: true,
+    });
+  });
+  it('每组按自己的占位符校验变量，搜索可命中其他回复', () => {
+    expect(replyVariables(multi, 'ko', 'ask').map((v) => v.name)).toEqual([
+      '产品名',
+    ]);
+    expect(replyPreview(multi, 'ko', {}, 'ask').missing).toEqual(['产品名']);
+    expect(replyPreview(multi, 'ko', { 产品名: '크림' }, 'ask').text).toBe(
+      '크림 안내',
+    );
+    expect(
+      searchScripts([{ node: multi, source: 'draft', official: null }], '먼저'),
+    ).toHaveLength(1);
+    expect(matchingReply(multi, '먼저')).toBe('reassure');
   });
 });

@@ -61,6 +61,8 @@ pub async fn material_from_file(
         name: name.into(),
         kind: kind.into(),
         category: "未分类".into(),
+        folder_id: None,
+        image_ids: vec![],
         tags: vec![],
         notes: String::new(),
         text: String::new(),
@@ -373,6 +375,7 @@ pub fn scripts_from_rows(
             },
             is_entry: matches!(get("isEntry").as_str(), "true" | "1" | "是"),
             replies,
+            reply_options: vec![],
             variables: serde_json::from_str(&parse("variables")).map_err(|_| {
                 Error::invalid(format!("第 {} 行 variables 不是有效 JSON", row.row))
             })?,

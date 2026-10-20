@@ -17,6 +17,8 @@ use utoipa::OpenApi;
         http::save_nodes,
         http::import_scripts,
         http::save_material,
+        http::save_folder,
+        http::delete_folder,
         http::create_material_category,
         http::publish,
         http::manifest,
@@ -39,6 +41,7 @@ use utoipa::OpenApi;
         SaveScripts,
         SheetRow,
         Material,
+        Folder,
         CreateMaterialCategory,
         CreateQuickCategory,
         MaterialSearchResult,
@@ -57,6 +60,7 @@ use utoipa::OpenApi;
         http::ImportScripts,
         DesktopPreferences,
         DesktopStatus,
+        ReplyOption,
         SearchLaunchScope
     ))
 )]

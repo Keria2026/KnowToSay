@@ -31,6 +31,7 @@
     <div class="search-list">
       {#each results.visibleScripts as record (record.node.id)}<ScriptResult
           {record}
+          {query}
         />{/each}
     </div>{/if}
   {#if results.scripts.length > results.limit}<button

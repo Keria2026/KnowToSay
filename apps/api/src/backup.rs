@@ -20,6 +20,10 @@ struct BackupData {
     draft_flows: Vec<Flow>,
     #[serde(default)]
     official_flows: Vec<Flow>,
+    #[serde(default)]
+    draft_folders: Vec<Folder>,
+    #[serde(default)]
+    official_folders: Vec<Folder>,
     draft_materials: Vec<Material>,
     official_materials: Vec<Material>,
     #[serde(default)]
@@ -126,6 +130,8 @@ pub async fn backup(state: &AppState, requested: Option<String>) -> Result<FileR
         official_flows: state.list("official_flows").await?,
         draft_materials: state.list("draft_materials").await?,
         official_materials: state.list("official_materials").await?,
+        draft_folders: state.list("draft_folders").await?,
+        official_folders: state.list("official_folders").await?,
         draft_material_categories: state.list("draft_material_categories").await?,
         official_material_categories: state.list("official_material_categories").await?,
         draft_quick_categories: state.list("draft_quick_categories").await?,
@@ -186,8 +192,7 @@ pub async fn import_package(state: &AppState, directory: &str) -> Result<()> {
         .map_err(|_| Error::conflict("请等待当前同步完成"))?;
     let path = PathBuf::from(directory);
     let bytes = tokio::fs::read(path.join("manifest.json")).await?;
-    let mut manifest: Manifest = serde_json::from_slice(&bytes)?;
-    manifest.upgrade();
+    let manifest = crate::folders::decode_manifest(&bytes)?;
     if manifest.format_version != 2
         || manifest.version < 1
         || uuid::Uuid::parse_str(&manifest.group_id).is_err()
@@ -250,10 +255,26 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
         nodes: data.official_nodes.clone(),
         flows: data.official_flows.clone(),
         materials: data.official_materials.clone(),
+        folders: data.official_folders.clone(),
         material_categories: data.official_material_categories.clone(),
         quick_categories: data.official_quick_categories.clone(),
     };
     let mut tx = state.pool.begin().await?;
+    for (table, folders) in [
+        ("draft_folders", &data.draft_folders),
+        ("official_folders", &data.official_folders),
+    ] {
+        sqlx::query(&format!("DELETE FROM {table}"))
+            .execute(&mut *tx)
+            .await?;
+        for folder in folders {
+            sqlx::query(&format!("INSERT INTO {table}(id,json) VALUES(?,?)"))
+                .bind(&folder.id)
+                .bind(serde_json::to_string(folder)?)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
     sqlx::query("DELETE FROM draft_quick_categories")
         .execute(&mut *tx)
         .await?;
@@ -352,15 +373,35 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
 }
 
 async fn read_backup(path: &Path) -> Result<BackupData> {
-    let mut data: BackupData =
+    let value: serde_json::Value =
         serde_json::from_slice(&tokio::fs::read(path.join("backup.json")).await?)?;
+    let mut data: BackupData = serde_json::from_value(value.clone())?;
     if data.format_version == 1 {
         upgrade_single_flow(&mut data.draft_nodes, &mut data.draft_flows);
         upgrade_single_flow(&mut data.official_nodes, &mut data.official_flows);
         data.format_version = 2;
     }
-    for release in &mut data.releases {
-        release.upgrade();
+    if value.get("draft_folders").is_none() {
+        crate::folders::upgrade(
+            &mut data.draft_folders,
+            &mut data.draft_materials,
+            &data.draft_material_categories,
+        );
+    }
+    if value.get("official_folders").is_none() {
+        crate::folders::upgrade(
+            &mut data.official_folders,
+            &mut data.official_materials,
+            &data.official_material_categories,
+        );
+    }
+    crate::folders::validate(&data.draft_folders, &data.draft_materials)?;
+    crate::folders::validate(&data.official_folders, &data.official_materials)?;
+    if let Some(releases) = value.get("releases").and_then(|r| r.as_array()) {
+        data.releases = releases
+            .iter()
+            .map(|v| crate::folders::decode_manifest(&serde_json::to_vec(v)?))
+            .collect::<Result<Vec<_>>>()?;
     }
     if data.format_version != 2
         || data.workspace.role != Role::Admin
@@ -421,9 +462,42 @@ pub async fn import_as_draft(state: &AppState, directory: &str) -> Result<()> {
                 + &suffix;
         }
     }
+    let mut folder_ids = BTreeMap::new();
+    let mut folders = data.draft_folders;
+    for folder in &mut folders {
+        folder.id = imported_id(&mut folder_ids, &folder.id);
+        if let Some(parent) = &folder.parent_id {
+            folder.parent_id = Some(imported_id(&mut folder_ids, parent));
+        }
+    }
+    let mut folder_names: BTreeSet<_> = state
+        .list::<Folder>("draft_folders")
+        .await?
+        .into_iter()
+        .map(|f| (f.parent_id, f.name.to_lowercase()))
+        .collect();
+    for folder in &mut folders {
+        let original = folder.name.clone();
+        let mut suffix = 1;
+        while !folder_names.insert((folder.parent_id.clone(), folder.name.to_lowercase())) {
+            suffix += 1;
+            let ending = format!("（导入 {suffix}）");
+            folder.name = original
+                .chars()
+                .take(80 - ending.chars().count())
+                .collect::<String>()
+                + &ending;
+        }
+    }
     let mut materials = data.draft_materials;
     for material in &mut materials {
         material.id = imported_id(&mut material_ids, &material.id);
+        if let Some(folder) = &material.folder_id {
+            material.folder_id = Some(imported_id(&mut folder_ids, folder));
+        }
+        for id in &mut material.image_ids {
+            *id = imported_id(&mut material_ids, id);
+        }
     }
     let mut nodes = data.draft_nodes;
     for node in &mut nodes {
@@ -442,6 +516,13 @@ pub async fn import_as_draft(state: &AppState, directory: &str) -> Result<()> {
     crate::db::validate_flow_membership(&nodes, &flows)?;
     copy_materials(&path.join("blobs"), &state.root.join("blobs"), &materials).await?;
     let mut tx = state.pool.begin().await?;
+    for folder in &folders {
+        sqlx::query("INSERT INTO draft_folders(id,json) VALUES(?,?)")
+            .bind(&folder.id)
+            .bind(serde_json::to_string(folder)?)
+            .execute(&mut *tx)
+            .await?;
+    }
     for (table, entries) in [
         (
             "draft_flows",

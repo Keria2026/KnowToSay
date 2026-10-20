@@ -60,6 +60,7 @@ fn node(id: &str, text: &str) -> ScriptNode {
         flow_id: Some("test-flow".into()),
         is_entry: true,
         replies: BTreeMap::from([("ko".into(), text.into())]),
+        reply_options: vec![],
         variables: vec![],
         branches: vec![],
         material_ids: vec![],
@@ -138,6 +139,8 @@ async fn explicit_initialization_roles_and_draft_visibility() {
                 name: "非法".into(),
                 kind: "text".into(),
                 category: "".into(),
+                folder_id: None,
+                image_ids: vec![],
                 tags: vec![],
                 notes: "".into(),
                 text: "".into(),
@@ -666,6 +669,8 @@ async fn material_category_migration_preserves_existing_assignments_and_empty_ca
         name: "原有资料".into(),
         kind: "text".into(),
         category: "原有分类".into(),
+        folder_id: None,
+        image_ids: vec![],
         tags: vec![],
         notes: String::new(),
         text: "原有内容".into(),
@@ -688,10 +693,13 @@ async fn material_category_migration_preserves_existing_assignments_and_empty_ca
     for table in ["draft_material_categories", "official_material_categories"] {
         assert_eq!(state.list::<String>(table).await.unwrap(), vec!["原有分类"]);
     }
-    assert_eq!(
-        state.list::<Material>("draft_materials").await.unwrap(),
-        vec![material.clone()]
-    );
+    let migrated = state.list::<Material>("draft_materials").await.unwrap();
+    let folders = state.list::<Folder>("draft_folders").await.unwrap();
+    assert_eq!(folders.len(), 1);
+    assert_eq!(folders[0].name, "原有分类");
+    let mut expected = material.clone();
+    expected.folder_id = Some(folders[0].id.clone());
+    assert_eq!(migrated, vec![expected]);
     let changed = Material {
         category: "新增归类".into(),
         ..material.clone()
@@ -1794,4 +1802,329 @@ async fn excel_preview_preserves_original_columns_sheet_selection_and_pagination
             .len(),
         1
     );
+}
+
+#[tokio::test]
+async fn multiple_quick_replies_survive_storage_sync_backups_and_personal_updates() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let mut quick = node("multi", "기본 답변");
+    quick.kind = ScriptKind::Quick;
+    quick.flow_id = None;
+    quick.is_entry = false;
+    let mut legacy = serde_json::to_value(&quick).unwrap();
+    legacy.as_object_mut().unwrap().remove("replyOptions");
+    assert!(
+        serde_json::from_value::<ScriptNode>(legacy)
+            .unwrap()
+            .reply_options
+            .is_empty()
+    );
+    quick.reply_options = vec![ReplyOption {
+        id: "option-a".into(),
+        name: "追问".into(),
+        replies: BTreeMap::from([
+            ("zh-CN".into(), "具体情况".into()),
+            ("ko".into(), "상세 상황".into()),
+        ]),
+    }];
+    let mut invalid = quick.clone();
+    invalid.reply_options.push(invalid.reply_options[0].clone());
+    assert!(admin.save_node(invalid).await.is_err());
+    let mut invalid = node("invalid-flow", "flow");
+    invalid.reply_options = quick.reply_options.clone();
+    assert!(admin.save_node(invalid).await.is_err());
+    admin.save_node(quick.clone()).await.unwrap();
+    let reopened = AppState::open(&*admin.root).await.unwrap();
+    assert_eq!(reopened.snapshot().await.unwrap().nodes[0].node, quick);
+    admin.publish().await.unwrap();
+    let address = server(admin.clone(), None).await;
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    assert_eq!(sales.snapshot().await.unwrap().nodes[0].node, quick);
+    let mut personal = quick.clone();
+    personal.reply_options[0]
+        .replies
+        .insert("ko".into(), "개인 답변".into());
+    sales.save_node(personal.clone()).await.unwrap();
+    let personal_backup = knowtosay::personal::export(&sales, None).await.unwrap();
+    quick.reply_options[0].name = "管理员更名".into();
+    admin.save_node(quick.clone()).await.unwrap();
+    admin.publish().await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    let snapshot = sales.snapshot().await.unwrap();
+    assert_eq!(snapshot.nodes[0].node, personal);
+    assert_eq!(snapshot.nodes[0].official.as_ref(), Some(&quick));
+    let package = backup::export_package(&admin, None).await.unwrap();
+    let offline = AppState::open(dir.path().join("offline")).await.unwrap();
+    backup::import_package(&offline, &package.path)
+        .await
+        .unwrap();
+    assert_eq!(offline.snapshot().await.unwrap().nodes[0].node, quick);
+    knowtosay::personal::import(&offline, &personal_backup.path)
+        .await
+        .unwrap();
+    assert_eq!(offline.snapshot().await.unwrap().nodes[0].node, personal);
+    let saved = backup::backup(&admin, None).await.unwrap();
+    let other = create_admin(&dir.path().join("other")).await;
+    backup::import_as_draft(&other, &saved.path).await.unwrap();
+    assert_eq!(
+        other.snapshot().await.unwrap().nodes[0].node.reply_options,
+        quick.reply_options
+    );
+    assert_eq!(
+        local(&admin, "DELETE", "/scripts/multi", json!(null))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    backup::restore(&admin, &saved.path).await.unwrap();
+    assert_eq!(admin.snapshot().await.unwrap().nodes[0].node, quick);
+}
+
+#[tokio::test]
+async fn case_images_and_folders_survive_moves_sync_and_foreign_backup_import() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let root = Folder {
+        id: "cases".into(),
+        name: "案例".into(),
+        parent_id: None,
+    };
+    let child = Folder {
+        id: "child".into(),
+        name: "治疗方案".into(),
+        parent_id: Some(root.id.clone()),
+    };
+    admin.save_folder(root.clone()).await.unwrap();
+    admin.save_folder(child.clone()).await.unwrap();
+    assert!(
+        admin
+            .save_folder(Folder {
+                parent_id: Some(child.id.clone()),
+                ..root.clone()
+            })
+            .await
+            .is_err()
+    );
+    assert!(
+        admin
+            .save_folder(Folder {
+                id: "duplicate".into(),
+                ..child.clone()
+            })
+            .await
+            .is_err()
+    );
+    let image = binary_material(
+        &admin,
+        "case.png",
+        include_bytes!("../../web/tests/fixtures/preview.png"),
+    )
+    .await;
+    let content = json!({"id":"case", "name":"案例组合", "kind":"case", "text":"案例文案", "notes":"详情备注", "category":"", "folderId":child.id, "imageIds":[image.id], "tags":["案例标签"], "hash":null, "size":0, "mime":"text/plain", "rows":[]});
+    assert_eq!(
+        local(&admin, "POST", "/materials", content.clone()).await.0,
+        StatusCode::OK
+    );
+    let case = admin
+        .snapshot()
+        .await
+        .unwrap()
+        .materials
+        .into_iter()
+        .find(|m| m.id == "case")
+        .unwrap();
+    assert_eq!(case.size, image.size);
+    let mut invalid = content;
+    invalid["imageIds"] = json!([image.id, image.id]);
+    assert_eq!(
+        local(&admin, "POST", "/materials", invalid).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    admin
+        .save_folder(Folder {
+            name: "调整后的方案".into(),
+            ..child.clone()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        admin
+            .snapshot()
+            .await
+            .unwrap()
+            .materials
+            .into_iter()
+            .find(|m| m.id == "case")
+            .unwrap()
+            .folder_id
+            .as_deref(),
+        Some("child")
+    );
+    assert_eq!(
+        knowtosay::search::search_folder(&admin, "案例文案", None, Some("cases"))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        knowtosay::search::search_folder(&admin, "案例文案", None, Some("missing"))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    admin.publish().await.unwrap();
+    let address = server(admin.clone(), None).await;
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sync::synchronize(&sales, &address).await.unwrap();
+    assert_eq!(sales.snapshot().await.unwrap().folders.len(), 2);
+    assert!(
+        sales
+            .root
+            .join("blobs")
+            .join(image.hash.as_ref().unwrap())
+            .is_file()
+    );
+    assert_eq!(
+        sales
+            .snapshot()
+            .await
+            .unwrap()
+            .materials
+            .into_iter()
+            .find(|m| m.id == "case")
+            .unwrap(),
+        case
+    );
+    let package = backup::export_package(&admin, None).await.unwrap();
+    let offline = AppState::open(dir.path().join("offline")).await.unwrap();
+    backup::import_package(&offline, &package.path)
+        .await
+        .unwrap();
+    assert_eq!(offline.snapshot().await.unwrap().folders.len(), 2);
+    let saved = backup::backup(&admin, None).await.unwrap();
+    let other = create_admin(&dir.path().join("other")).await;
+    other
+        .save_folder(Folder {
+            id: "existing".into(),
+            ..root.clone()
+        })
+        .await
+        .unwrap();
+    backup::import_as_draft(&other, &saved.path).await.unwrap();
+    let imported = other.snapshot().await.unwrap();
+    let imported_case = imported
+        .materials
+        .iter()
+        .find(|m| m.kind == "case")
+        .unwrap();
+    assert_ne!(imported_case.image_ids[0], image.id);
+    let imported_image = imported
+        .materials
+        .iter()
+        .find(|m| m.id == imported_case.image_ids[0])
+        .unwrap();
+    assert_eq!(imported_image.hash, image.hash);
+    let imported_child = imported
+        .folders
+        .iter()
+        .find(|f| Some(&f.id) == imported_case.folder_id.as_ref())
+        .unwrap();
+    let imported_root = imported
+        .folders
+        .iter()
+        .find(|f| Some(&f.id) == imported_child.parent_id.as_ref())
+        .unwrap();
+    assert_eq!(imported_root.name, "案例（导入 2）");
+    other.publish().await.unwrap();
+    admin.delete_folder("child").await.unwrap();
+    assert_eq!(
+        admin
+            .snapshot()
+            .await
+            .unwrap()
+            .materials
+            .iter()
+            .find(|m| m.id == "case")
+            .unwrap()
+            .folder_id
+            .as_deref(),
+        Some("cases")
+    );
+    backup::restore(&admin, &saved.path).await.unwrap();
+    assert_eq!(admin.snapshot().await.unwrap().folders.len(), 2);
+}
+
+#[tokio::test]
+async fn legacy_categories_and_release_manifests_migrate_to_stable_folders() {
+    let dir = tempfile::tempdir().unwrap();
+    let migration_dir = dir.path().join("previous-migrations");
+    tokio::fs::create_dir_all(&migration_dir).await.unwrap();
+    for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations")).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with("0006") {
+            continue;
+        }
+        tokio::fs::copy(entry.path(), migration_dir.join(name))
+            .await
+            .unwrap();
+    }
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(dir.path().join("workspace.sqlite"))
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::migrate::Migrator::new(migration_dir.as_path())
+        .await
+        .unwrap()
+        .run(&pool)
+        .await
+        .unwrap();
+    let group_id = uuid::Uuid::new_v4().to_string();
+    let material = json!({"id":"legacy-file","name":"原有文字","kind":"text","category":"原分类","tags":[],"notes":"旧备注","text":"旧正文","mime":"text/plain","hash":null,"size":0,"rows":[]});
+    for table in ["draft_materials", "official_materials"] {
+        sqlx::query(&format!(
+            "INSERT INTO {table}(id,json) VALUES('legacy-file',?)"
+        ))
+        .bind(material.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("INSERT INTO workspace(id,json) VALUES(1,?)").bind(json!({"groupId":group_id,"name":"旧工作组","role":"admin","version":1,"adminAddress":null}).to_string()).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO releases(version,json) VALUES(1,?)").bind(json!({"formatVersion":2,"groupId":group_id,"groupName":"旧工作组","version":1,"nodes":[],"flows":[],"materials":[material],"materialCategories":["原分类"],"quickCategories":[]}).to_string()).execute(&pool).await.unwrap();
+    pool.close().await;
+    let state = AppState::open(dir.path()).await.unwrap();
+    let first = state.latest().await.unwrap();
+    let second = state.latest().await.unwrap();
+    assert_eq!(first.folders, second.folders);
+    assert_eq!(first.folders.len(), 1);
+    assert_eq!(
+        first.materials[0].folder_id.as_ref(),
+        Some(&first.folders[0].id)
+    );
+    let snapshot = state.snapshot().await.unwrap();
+    assert_eq!(snapshot.folders[0].id, first.folders[0].id);
+    assert_eq!(
+        snapshot.materials[0].folder_id.as_ref(),
+        Some(&snapshot.folders[0].id)
+    );
+    state.delete_folder(&snapshot.folders[0].id).await.unwrap();
+    let saved = backup::backup(&state, None).await.unwrap();
+    state
+        .save_folder(Folder {
+            id: "temporary".into(),
+            name: "临时文件夹".into(),
+            parent_id: None,
+        })
+        .await
+        .unwrap();
+    backup::restore(&state, &saved.path).await.unwrap();
+    assert!(state.snapshot().await.unwrap().folders.is_empty());
 }

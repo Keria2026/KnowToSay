@@ -21,7 +21,9 @@
   import { SearchResultsModel } from './search-results.svelte';
   import ScriptResult from '../scripts/ScriptResult.svelte';
   import MaterialResult from '../knowledge/MaterialResult.svelte';
+  import ReplySelector from '../scripts/ReplySelector.svelte';
   import BilingualReplies from '../scripts/BilingualReplies.svelte';
+  let replyId = $state('');
   let query = $state('');
   let selected = $state<NodeRecord | null>(null);
   let values = $state<Record<string, string>>({});
@@ -30,10 +32,12 @@
   let copyHides = true;
   const results = new SearchResultsModel(() => query);
   let preview = $derived(
-    selected ? replyPreview(selected.node, app.language, values) : null,
+    selected
+      ? replyPreview(selected.node, app.language, values, replyId)
+      : null,
   );
   let variables = $derived(
-    selected ? replyVariables(selected.node, app.language) : [],
+    selected ? replyVariables(selected.node, app.language, replyId) : [],
   );
   $effect(() => {
     app.searchScope;
@@ -87,8 +91,9 @@
     if (native()) await invoke('close_search');
     else window.close();
   }
-  function select(record: NodeRecord) {
+  function select(record: NodeRecord, id = '') {
     selected = record;
+    replyId = id;
     values = {};
   }
   async function openMain(id = '') {
@@ -126,17 +131,12 @@
     }
     if (event.key === 'Enter' && count) {
       event.preventDefault();
-      if (activeIndex < results.visibleScripts.length) {
-        const record = results.visibleScripts[activeIndex];
-        const ready = replyPreview(record.node, app.language, {});
-        if (ready.ready) void copyReply(ready.text);
-        else select(record);
-      } else {
-        const hit =
-          results.materials[activeIndex - results.visibleScripts.length];
-        app.materialQuery = hit.rows.length ? query : '';
-        app.selectedMaterialId = hit.material.id;
-      }
+      document
+        .querySelectorAll<HTMLElement>('.quick-search-results .result-card')
+        [activeIndex]?.querySelector<HTMLButtonElement>(
+          '.result-actions .button.primary',
+        )
+        ?.click();
     }
   }
 </script>
@@ -188,13 +188,25 @@
               /></label
             >{/each}
         </div>{/if}
-      <BilingualReplies node={selected.node} />
+      <ReplySelector node={selected.node} bind:replyId /><BilingualReplies
+        node={selected.node}
+        {replyId}
+      />
       <p class="field-help">复制预览 · {languageName(app.language)}</p>
       <p class="text-preview">
         {preview?.languageMissing
           ? '暂无此语言版本，请选择其他语言。'
           : preview?.text}
       </p>
+      {#if selected.node.materialIds.length}<div class="linked-materials">
+          <h3>关联素材</h3>
+          {#each selected.node.materialIds as id}{@const material =
+              app.materials.find((m) => m.id === id)}
+            {#if material}<MaterialResult
+                hit={{ material, rows: [] }}
+              />{:else}<p class="field-help">素材已移除</p>{/if}
+          {/each}
+        </div>{/if}
       <div class="reply-actions">
         <span class="field-help"
           >{preview?.missing.length
@@ -218,9 +230,10 @@
         </div>{/if}
       {#each results.visibleScripts as record, i (record.node.id)}<ScriptResult
           {record}
+          {query}
           active={activeIndex === i}
           oncopy={copyReply}
-          ondetail={() => select(record)}
+          ondetail={(id) => select(record, id)}
         />{/each}
       {#if results.materials.length}<div class="section-label">
           素材与表格

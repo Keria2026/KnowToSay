@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { api, native, copyText } from './api';
 import { globalScope } from './search';
 import type { SearchScope } from './search';
-import { quickCategoryName } from '$lib/utils/scripts';
+import { quickCategoryName, replyChoices } from '$lib/utils/scripts';
 import {
   groupOrderKey,
   readGroupOrder,
@@ -27,6 +27,7 @@ class WorkspaceStore {
   query = $state('');
   searchScope = $state<SearchScope>(globalScope());
   replyId = $state('');
+  replyOptionId = $state('');
   materialQuery = $state<string | null>(null);
   selectedId = $state('');
   selectedMaterialId = $state('');
@@ -81,6 +82,7 @@ class WorkspaceStore {
   editorDirty = $state(false);
   freshNode = $state<ScriptNode | null>(null);
   materials = $derived(this.data?.materials ?? []);
+  folders = $derived(this.data?.folders ?? []);
   workspace = $derived(this.data?.workspace ?? null);
   admin = $derived(this.workspace?.role === 'admin');
   current = $derived(
@@ -90,7 +92,9 @@ class WorkspaceStore {
     ...new Set([
       'ko',
       'zh-CN',
-      ...this.nodes.flatMap((n) => Object.keys(n.node.replies)),
+      ...this.nodes.flatMap((n) =>
+        replyChoices(n.node).flatMap((r) => Object.keys(r.replies)),
+      ),
     ]),
   ]);
 

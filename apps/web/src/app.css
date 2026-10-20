@@ -902,46 +902,7 @@ main {
   margin-top: -7px;
   margin-bottom: 23px;
 }
-.related-card {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  text-align: left;
-  width: 100%;
-  padding: 0;
-  background: white;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-  margin-bottom: 14px;
-}
-.related-icon {
-  background: var(--parchment);
-  height: 84px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  color: var(--muted);
-}
-.related-card > strong {
-  font-size: var(--text-caption);
-  font-weight: 600;
-  padding: 13px 13px 3px;
-  overflow-wrap: anywhere;
-}
-.related-card > small {
-  font-size: var(--text-caption);
-  color: var(--muted);
-  padding: 0 13px;
-}
-.related-action {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 15px 13px 12px;
-  font-size: var(--text-caption);
-  color: var(--blue);
-}
+
 .removed-material {
   border: 1px dashed var(--line);
   border-radius: 8px;
@@ -1167,10 +1128,7 @@ main {
   padding: 8px;
   font-size: var(--text-caption);
 }
-.material-options {
-  max-height: 170px;
-  overflow: auto;
-}
+
 .editor-footer {
   display: flex;
   align-items: center;
@@ -1878,10 +1836,7 @@ summary {
     width: 100%;
     margin: 0;
   }
-  .related-card {
-    width: 160px;
-    border-radius: var(--radius);
-  }
+
   .related-panel .empty {
     padding: 10px;
     align-items: flex-start;
@@ -2206,11 +2161,7 @@ summary {
   .related-panel {
     display: flex;
   }
-  .related-card {
-    width: calc(50% - 8px);
-    margin-bottom: 0;
-    border-radius: var(--radius);
-  }
+
   .page-heading {
     gap: 10px;
   }
@@ -3280,4 +3231,148 @@ summary {
   .graph-canvas {
     height: clamp(280px, 55dvh, 500px);
   }
+}
+
+.reply-selector {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-caption);
+}
+.reply-selector select {
+  width: auto;
+  max-width: 100%;
+}
+.material-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 64px;
+  overflow: hidden;
+}
+.material-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.material-cover:has(.material-image) > span {
+  background: var(--canvas);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+.result-summary > .material-image {
+  width: 72px;
+  height: 72px;
+  flex: 0 0 72px;
+}
+.material-use-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.material-link-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.material-link-search input {
+  min-width: 0;
+}
+.material-link-matches {
+  max-height: 240px;
+  overflow: auto;
+  border-bottom: 1px solid var(--line);
+}
+.material-link-match {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.material-link-match > span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.linked-materials {
+  margin-top: 16px;
+}
+.linked-material {
+  margin-bottom: 16px;
+}
+.linked-material .result-card,
+.related-panel .result-card {
+  flex-direction: column;
+}
+.linked-material .result-actions,
+.related-panel .result-actions {
+  align-self: stretch;
+}
+
+.folder-breadcrumbs {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 16px 0;
+  font-size: var(--text-caption);
+}
+.folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+.folder-card {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  color: var(--blue);
+  min-width: 0;
+  text-align: left;
+}
+.folder-card strong {
+  overflow-wrap: anywhere;
+}
+.case-editor {
+  width: min(800px, calc(100vw - 24px));
+}
+.case-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.case-image-tile {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  min-width: 0;
+}
+.case-image-tile .material-image {
+  height: 180px;
+}
+.case-image-preview {
+  display: block;
+  border: 0;
+  padding: 0;
+  width: 100%;
+  background: transparent;
+  margin-bottom: 12px;
+}
+.case-image-tile.expanded {
+  grid-column: 1 / -1;
+}
+.case-image-tile.expanded .material-image {
+  height: min(65dvh, 600px);
+}
+.case-image-tile .material-use-actions {
+  margin-top: 12px;
 }

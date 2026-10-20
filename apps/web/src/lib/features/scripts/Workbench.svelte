@@ -8,9 +8,6 @@
     Pencil,
     BookOpen,
     FileText,
-    FileSpreadsheet,
-    Image,
-    Film,
     Plus,
     MessageSquare,
     RotateCcw,
@@ -25,10 +22,17 @@
     quickCategoryName,
     replyVariables,
   } from '$lib/utils/scripts';
-  import type { Material, Snapshot, ScriptKind } from '$lib/types';
+  import type { Snapshot, ScriptKind } from '$lib/types';
   import FlowCanvas from './FlowCanvas.svelte';
   import FlowFullscreen from './FlowFullscreen.svelte';
   import ScriptNavigation from './ScriptNavigation.svelte';
+  import MaterialResult from '../knowledge/MaterialResult.svelte';
+  import ReplySelector from './ReplySelector.svelte';
+  let replyId = $state('');
+  $effect(() => {
+    node?.id;
+    replyId = '';
+  });
   let node = $derived(app.current?.node);
   let showFlow = $state(false);
   let fullscreenFlow = $state(false);
@@ -38,9 +42,11 @@
     ),
   );
   let preview = $derived(
-    node ? replyPreview(node, app.language, app.values) : null,
+    node ? replyPreview(node, app.language, app.values, replyId) : null,
   );
-  let inputs = $derived(node ? replyVariables(node, app.language) : []);
+  let inputs = $derived(
+    node ? replyVariables(node, app.language, replyId) : [],
+  );
   let flows = $derived(
     app.nodes.filter(
       (n) => n.node.kind !== 'quick' && n.node.flowId === app.activeFlowId,
@@ -82,10 +88,6 @@
       app.history = [];
     }
   }
-  const icon = (kind: string) =>
-    ({ image: Image, video: Film, excel: FileSpreadsheet, text: FileText })[
-      kind
-    ] || FileText;
   function add() {
     app.freshNode =
       app.browseKind === 'quick'
@@ -245,6 +247,7 @@
         <p class="question">
           {node.question || '选择合适的回复，与客户开始沟通。'}
         </p>
+        <ReplySelector {node} bind:replyId />
         {#if inputs.length}<div class="variables">
             <div class="section-label">填写本次回复</div>
             {#each inputs as variable}<label
@@ -313,19 +316,12 @@
       <div class="section-label">
         关联素材 <span>{node?.materialIds.length || 0}</span>
       </div>
-      <p class="field-help">选中预览，导出后上传到云机。</p>
+      <p class="field-help">可直接复制，文件导出后上传到云机。</p>
       {#each node?.materialIds || [] as id}{@const material =
-          app.materials.find((m) => m.id === id)}{#if material}{@const Icon =
-            icon(material.kind)}<button
-            class="related-card"
-            onclick={() => (app.selectedMaterialId = id)}
-            ><div class="related-icon"><Icon size={25} /></div>
-            <strong>{material.name}</strong><small
-              >{material.category || '未分类'}</small
-            ><span class="related-action"
-              >预览素材 <ArrowRight size={14} /></span
-            ></button
-          >{:else}<div class="removed-material">
+          app.materials.find((m) => m.id === id)}{#if material}<MaterialResult
+            hit={{ material, rows: [] }}
+          />
+        {:else}<div class="removed-material">
             <FileText size={20} /><strong>素材已移除</strong>
             <p>个人话术已保留，可在编辑页重新关联素材。</p>
           </div>{/if}{/each}{#if !node?.materialIds.length}<div

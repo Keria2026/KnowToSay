@@ -32,6 +32,8 @@
   import FlowFullscreen from './FlowFullscreen.svelte';
   let fullscreenFlow = $state(false);
   import ScriptNavigation from './ScriptNavigation.svelte';
+  import MaterialPicker from '../knowledge/MaterialPicker.svelte';
+  import ReplyEditor from './ReplyEditor.svelte';
   import BilingualReplies from './BilingualReplies.svelte';
   import { layoutFlow } from './flow';
   type Point = { x: number; y: number };
@@ -235,12 +237,6 @@
         (b) => b.id !== pendingBranch!.branchId,
       );
     branchDialog.close();
-  }
-  function toggleMaterial(id: string, selected: boolean) {
-    if (draft)
-      draft.materialIds = selected
-        ? [...draft.materialIds, id]
-        : draft.materialIds.filter((v) => v !== id);
   }
   async function remove() {
     if (!draft || !confirm('删除这条话术？请检查其他话术是否仍引用它。'))
@@ -450,16 +446,9 @@
                 </select></label
               >
             {/if}
-            <div class="editor-section">
-              <h3>话术内容</h3>
-              {#each ['zh-CN', 'ko', ...Object.keys(draft.replies).filter((key) => !['zh-CN', 'ko'].includes(key))] as language}<label
-                  >{languageName(language)}<textarea
-                    bind:value={draft.replies[language]}
-                    rows="4"
-                    placeholder={'输入完整回复，可使用 {变量名}'}
-                  ></textarea></label
-                >{/each}
-            </div>
+            {#key draft.id}<ReplyEditor
+                bind:node={drafts[app.editorId]}
+              />{/key}
             <div class="editor-section">
               <div class="section-title">
                 <h3>变量</h3>
@@ -542,33 +531,9 @@
                     </div>
                   </div>{/each}
               </div>{/if}
-            <div class="editor-section">
-              <h3>关联素材</h3>
-              {#each draft.materialIds.filter((id) => !app.materials.some((m) => m.id === id)) as id}<div
-                  class="removed-material"
-                >
-                  素材已移除<button
-                    type="button"
-                    class="text-button"
-                    onclick={() => toggleMaterial(id, false)}>取消关联</button
-                  >
-                </div>{/each}
-              <div class="material-options">
-                {#each app.materials as material}<label class="check-label"
-                    ><input
-                      type="checkbox"
-                      checked={draft.materialIds.includes(material.id)}
-                      onchange={(event) =>
-                        toggleMaterial(
-                          material.id,
-                          event.currentTarget.checked,
-                        )}
-                    />{material.name}</label
-                  >{/each}{#if !app.materials.length}<p class="field-help">
-                    知识库尚无素材。
-                  </p>{/if}
-              </div>
-            </div>
+            {#key draft.id}<MaterialPicker
+                bind:ids={drafts[app.editorId].materialIds}
+              />{/key}
             {#if current?.official && current.source === 'personal'}<details>
                 <summary>查看当前管理员版本</summary
                 >{#each Object.entries(current.official.replies) as [language, text]}<h4

@@ -1,4 +1,5 @@
-import type { NodeRecord, MaterialSearchResult } from '$lib/types';
+import type { NodeRecord, MaterialSearchResult, Folder } from '$lib/types';
+import { folderOf, folderDescendants } from '../knowledge/folders';
 import { quickCategoryName } from '$lib/utils/scripts';
 export type SearchArea = 'all' | 'flow' | 'quick' | 'library';
 export type SearchScope = { area: SearchArea; group: string };
@@ -21,6 +22,7 @@ export function scopedScripts(records: NodeRecord[], scope: SearchScope) {
 export function scopedMaterials(
   hits: MaterialSearchResult[],
   scope: SearchScope,
+  folders: Folder[] = [],
 ) {
   return scope.area === 'all'
     ? hits
@@ -28,7 +30,11 @@ export function scopedMaterials(
       ? hits.filter(
           ({ material }) =>
             !scope.group ||
-            (material.category.trim() || '未分类') === scope.group,
+            (folders.some((f) => f.id === scope.group)
+              ? folderDescendants(folders, scope.group).has(
+                  folderOf(material, folders) ?? '',
+                )
+              : (material.category.trim() || '未分类') === scope.group),
         )
       : [];
 }

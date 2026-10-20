@@ -1,25 +1,16 @@
 <script lang="ts">
-  import {
-    Download,
-    Copy,
-    FolderOpen,
-    FileSpreadsheet,
-    Play,
-    FileText,
-  } from 'lucide-svelte';
+  import { FolderOpen, FileText } from 'lucide-svelte';
   import { app } from '../workspace/store.svelte';
-  import {
-    materialUrl,
-    exportMaterial,
-    revealMaterial,
-    native,
-    api,
-  } from '../workspace/api';
+  import { materialUrl, revealMaterial, native } from '../workspace/api';
   import { bytes, kindName } from '$lib/utils/scripts';
+  import { folderPath } from './folders';
+  import MaterialImage from './MaterialImage.svelte';
+  import MaterialActions from './MaterialActions.svelte';
   import SheetPreview from './SheetPreview.svelte';
   import type { Material } from '$lib/types';
   let { material, query = '' }: { material: Material; query?: string } =
     $props();
+  let expandedImage = $state('');
   let url = $state('');
   let failed = $state(false);
   $effect(() => {
@@ -43,7 +34,7 @@
 
 <div class="preview-meta">
   <span class="pill">{kindName(material.kind)}</span><span
-    >{material.category || '未分类'}</span
+    >{folderPath(app.folders, material.folderId)}</span
   >{#if material.hash}<span>{bytes(material.size)}</span>{/if}
 </div>
 {#if material.notes}<p class="muted">{material.notes}</p>{/if}
@@ -61,6 +52,30 @@
     <video controls preload="metadata" src={url} onerror={() => (failed = true)}
       >浏览器不支持此格式，请导出后播放。</video
     >
+  {:else if material.kind === 'case'}
+    <div class="section-title">
+      <h3>文案</h3>
+      <MaterialActions {material} />
+    </div>
+    <p class="text-preview">{material.text}</p>
+    <h3>组合图片 · {material.imageIds?.length ?? 0}</h3>
+    <div class="case-image-grid">
+      {#each material.imageIds ?? [] as id}{@const image = app.materials.find(
+          (m) => m.id === id,
+        )}
+        <div class="case-image-tile" class:expanded={expandedImage === id}>
+          {#if image}<button
+              type="button"
+              class="case-image-preview"
+              aria-label={`预览${image.name}`}
+              onclick={() => (expandedImage = expandedImage === id ? '' : id)}
+              ><MaterialImage material={image} /></button
+            ><MaterialActions material={image} />{:else}<p class="field-help">
+              图片已移除
+            </p>{/if}
+        </div>
+      {/each}
+    </div>
   {:else if material.kind === 'text'}<div class="text-preview">
       {material.text || '暂无正文'}
     </div>
@@ -75,21 +90,7 @@
     {#each material.tags as tag}<span class="tag">{tag}</span>{/each}
   </div>{/if}
 <div class="button-row">
-  <button
-    class="button primary"
-    disabled={!!app.busy}
-    onclick={() =>
-      app.task(
-        '导出素材',
-        () => exportMaterial(material),
-        material.hash
-          ? '已处理导出请求；请手动上传到 LDCLOUD'
-          : '已复制素材正文',
-      )}
-    >{#if material.hash}<Download size={16} />导出文件{:else}<Copy
-        size={16}
-      />复制正文{/if}</button
-  >
+  {#if material.kind !== 'case'}<MaterialActions {material} />{/if}
   {#if material.hash && native()}<button
       class="button secondary"
       onclick={() => app.task('定位素材', () => revealMaterial(material.id))}

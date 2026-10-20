@@ -79,6 +79,66 @@
         }
       }
     },
+    "/api/v1/folders": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "save_folder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Folder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/folders/{id}": {
+      "delete": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "delete_folder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/group": {
       "post": {
         "tags": [
@@ -600,6 +660,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -868,6 +936,27 @@
           }
         }
       },
+      "Folder": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "ImportScripts": {
         "type": "object",
         "required": [
@@ -925,6 +1014,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Flow"
+            }
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Folder"
             }
           },
           "formatVersion": {
@@ -986,6 +1081,12 @@
           "category": {
             "type": "string"
           },
+          "folderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "hash": {
             "type": [
               "string",
@@ -994,6 +1095,12 @@
           },
           "id": {
             "type": "string"
+          },
+          "imageIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "kind": {
             "type": "string"
@@ -1086,6 +1193,31 @@
           "y": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "ReplyOption": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "replies"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "replies": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },
@@ -1194,6 +1326,13 @@
               "type": "string"
             }
           },
+          "replyOptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReplyOption"
+            },
+            "description": "Extra quick replies; the existing replies remain the default answer."
+          },
           "title": {
             "type": "string"
           },
@@ -1285,6 +1424,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Flow"
+            }
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Folder"
             }
           },
           "manageableQuickCategories": {
