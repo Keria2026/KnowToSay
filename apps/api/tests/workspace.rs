@@ -2370,3 +2370,12 @@ async fn manual_join_requires_online_group_and_persists_sales_identity() {
         1
     );
 }
+
+#[tokio::test]
+async fn discovery_finishes_even_when_broadcast_is_unavailable() {
+    // Actual socket I/O may fail or return no groups on isolated CI adapters.
+    // Either outcome must finish, so manual join and create stay usable.
+    let _result = tokio::time::timeout(std::time::Duration::from_secs(5), sync::discover())
+        .await
+        .expect("LAN discovery exceeded its overall timeout");
+}

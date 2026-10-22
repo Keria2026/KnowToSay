@@ -26,7 +26,7 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
     errors.push(error.message);
     console.error('Browser error:', error.message);
   });
-  const discovery = page.waitForResponse(r => r.url().endsWith('/api/v1/group/discover'));
+  const discovery = page.waitForRequest(r => r.url().endsWith('/api/v1/group/discover'));
   await page.goto('/');
   await discovery;
   await expect(page.getByRole('button',{name:'发现并加入工作组',exact:true})).toBeVisible();

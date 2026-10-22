@@ -249,7 +249,7 @@ async fn sync_inner(state: &AppState, address: &str) -> Result<()> {
 
 /// Resolve the interface chosen by the OS for LAN broadcast without sending traffic.
 pub async fn lan_status(state: &AppState) -> LanStatus {
-    let address = async {
+    let address = tokio::time::timeout(Duration::from_secs(2), async {
         let socket = UdpSocket::bind("0.0.0.0:0").await.ok()?;
         socket.set_broadcast(true).ok()?;
         socket.connect(("255.255.255.255", LAN_PORT)).await.ok()?;
@@ -260,8 +260,10 @@ pub async fn lan_status(state: &AppState) -> LanStatus {
             }
             _ => None,
         }
-    }
-    .await;
+    })
+    .await
+    .ok()
+    .flatten();
     LanStatus {
         address,
         port: LAN_PORT,
@@ -272,6 +274,14 @@ pub async fn lan_status(state: &AppState) -> LanStatus {
 }
 
 pub async fn discover() -> Result<Vec<Discovery>> {
+    // Broadcast I/O can stall on isolated Windows adapters. Bound the whole
+    // operation, including bind/send, so discovery cannot stall onboarding.
+    tokio::time::timeout(Duration::from_secs(2), discover_inner())
+        .await
+        .unwrap_or_else(|_| Ok(Vec::new()))
+}
+
+async fn discover_inner() -> Result<Vec<Discovery>> {
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
     socket.set_broadcast(true)?;
     socket
