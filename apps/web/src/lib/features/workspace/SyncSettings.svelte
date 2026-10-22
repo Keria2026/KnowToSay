@@ -1,13 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { RefreshCw, Upload, Radio, Check, FolderOpen } from 'lucide-svelte';
+  import { RefreshCw, Upload, Radio } from 'lucide-svelte';
   import { app } from './store.svelte';
-  import { api, native, chooseDirectory } from './api';
+  import { api } from './api';
   import { bytes } from '$lib/utils/scripts';
-  import type { Manifest, FileResult, Snapshot } from '$lib/types';
+  import type { Manifest } from '$lib/types';
   let published = $state<Manifest | null>(null);
-  let directory = $state('');
-  let result = $state('');
   let address = $state(app.workspace?.adminAddress || '');
   onMount(() => {
     if (app.admin && app.workspace?.version)
@@ -23,33 +21,6 @@
         await app.refresh();
       },
       '已发布，局域网内业务员将自动获取更新',
-    );
-  }
-  async function exportPackage() {
-    const path = native() ? await chooseDirectory() : directory;
-    if (native() && !path) return;
-    await app.task('导出资料包', async () => {
-      result = (
-        await api<FileResult>('/package/export', 'POST', {
-          directory: path || null,
-        })
-      ).path;
-    });
-  }
-  async function importPackage() {
-    const path = native() ? await chooseDirectory() : directory;
-    if (!path) {
-      app.error = '请选择或填写资料包文件夹';
-      return;
-    }
-    await app.task(
-      '导入资料包',
-      async () => {
-        app.data = await api<Snapshot>('/package/import', 'POST', {
-          directory: path,
-        });
-      },
-      '资料包已导入，个人修改保持不变',
     );
   }
 </script>
@@ -157,24 +128,3 @@
       只允许连接当前工作组；修改地址不会更换身份或清除个人话术。
     </p>
   </div>{/if}
-<div class="settings-card">
-  <h3>离线资料包</h3>
-  <p class="muted">在无法通过局域网连接时，用文件夹交付已发布的资料。</p>
-  {#if !native()}<label
-      >{app.admin
-        ? '导出父文件夹（留空使用本地导出目录）'
-        : '资料包文件夹'}<input
-        bind:value={directory}
-        placeholder="本机绝对路径，例如 /tmp/knowtosay-package"
-      /></label
-    >{/if}<button
-    class="button secondary"
-    disabled={!!app.busy || (app.admin && !app.workspace?.version)}
-    onclick={app.admin ? exportPackage : importPackage}
-    ><FolderOpen size={16} />{app.admin
-      ? '导出已发布资料包'
-      : '导入资料包'}</button
-  >{#if result}<div class="result-path">
-      <Check size={16} />已导出：<code>{result}</code>
-    </div>{/if}
-</div>

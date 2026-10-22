@@ -75,7 +75,17 @@ async fn copy_materials(from: &Path, to: &Path, materials: &[Material]) -> Resul
     for (hash, size) in hashes {
         let source = from.join(hash);
         let target = to.join(hash);
-        if tokio::fs::metadata(&source).await?.len() != size || hash_file(&source).await? != *hash {
+        if tokio::fs::metadata(&source)
+            .await
+            .map_err(|_| {
+                Error::invalid(
+                    "资产中的素材文件缺失或无法读取，请完整复制资产文件夹及 blobs 子文件夹",
+                )
+            })?
+            .len()
+            != size
+            || hash_file(&source).await? != *hash
+        {
             return Err(Error::conflict("备份或素材文件校验失败，当前资料未更改"));
         }
         if source == target
@@ -141,7 +151,7 @@ pub async fn backup(state: &AppState, requested: Option<String>) -> Result<FileR
             .map(|s| serde_json::from_str(&s))
             .collect::<std::result::Result<_, _>>()?,
     };
-    let (staging, final_path) = directory(state, requested, "backup").await?;
+    let (staging, final_path) = directory(state, requested, "assets").await?;
     let mut materials = data.draft_materials.clone();
     materials.extend(data.official_materials.clone());
     for r in &data.releases {
@@ -373,9 +383,13 @@ pub async fn restore(state: &AppState, directory: &str) -> Result<()> {
 }
 
 async fn read_backup(path: &Path) -> Result<BackupData> {
-    let value: serde_json::Value =
-        serde_json::from_slice(&tokio::fs::read(path.join("backup.json")).await?)?;
-    let mut data: BackupData = serde_json::from_value(value.clone())?;
+    let bytes = tokio::fs::read(path.join("backup.json"))
+        .await
+        .map_err(|_| Error::invalid("无法读取资产清单，请选择包含 backup.json 的完整资产文件夹"))?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|_| Error::invalid("资产清单损坏或格式不正确，请重新导出完整资产"))?;
+    let mut data: BackupData = serde_json::from_value(value.clone())
+        .map_err(|_| Error::invalid("资产清单格式不受支持，请使用相同或更新版本的客户端导入"))?;
     if data.format_version == 1 {
         upgrade_single_flow(&mut data.draft_nodes, &mut data.draft_flows);
         upgrade_single_flow(&mut data.official_nodes, &mut data.official_flows);
@@ -437,7 +451,45 @@ pub async fn import_as_draft(state: &AppState, directory: &str) -> Result<()> {
     let _guard = state.write.lock().await;
     state.admin().await?;
     let path = PathBuf::from(directory);
-    let data = read_backup(&path).await?;
+    let data = if tokio::fs::try_exists(path.join("backup.json")).await? {
+        read_backup(&path).await?
+    } else {
+        // Old published packages can also seed a new administrator's own assets.
+        let manifest =
+            crate::folders::decode_manifest(&tokio::fs::read(path.join("manifest.json")).await?)?;
+        if manifest.format_version != 2
+            || manifest.version < 1
+            || uuid::Uuid::parse_str(&manifest.group_id).is_err()
+        {
+            return Err(Error::invalid("资产清单格式不受支持"));
+        }
+        validate_manifest_content(&manifest.nodes, &manifest.materials)?;
+        crate::db::validate_flow_membership(&manifest.nodes, &manifest.flows)?;
+        crate::folders::validate(&manifest.folders, &manifest.materials)?;
+        BackupData {
+            format_version: 2,
+            workspace: Workspace {
+                group_id: manifest.group_id,
+                name: manifest.group_name,
+                role: Role::Admin,
+                version: manifest.version,
+                admin_address: None,
+            },
+            draft_nodes: manifest.nodes,
+            draft_flows: manifest.flows,
+            draft_folders: manifest.folders,
+            draft_materials: manifest.materials,
+            draft_material_categories: manifest.material_categories,
+            draft_quick_categories: manifest.quick_categories,
+            official_nodes: vec![],
+            official_flows: vec![],
+            official_folders: vec![],
+            official_materials: vec![],
+            official_material_categories: vec![],
+            official_quick_categories: vec![],
+            releases: vec![],
+        }
+    };
     let mut flow_ids = BTreeMap::new();
     let mut node_ids = BTreeMap::new();
     let mut material_ids = BTreeMap::new();
@@ -570,4 +622,64 @@ pub async fn import_as_draft(state: &AppState, directory: &str) -> Result<()> {
     }
     tx.commit().await?;
     Ok(())
+}
+
+/// The UI has one asset entry point; the current role determines its data boundary.
+pub async fn import_assets(state: &AppState, directory: &str) -> Result<()> {
+    let role = state.required_workspace().await?.role;
+    let path = Path::new(directory);
+    if !path.is_absolute() {
+        return Err(Error::invalid("请选择资产文件夹的绝对路径"));
+    }
+    let group = tokio::fs::try_exists(path.join("backup.json")).await?;
+    let personal = tokio::fs::try_exists(path.join("personal.json")).await?;
+    let package = tokio::fs::try_exists(path.join("manifest.json")).await?;
+    if [group, personal, package]
+        .into_iter()
+        .filter(|v| *v)
+        .count()
+        != 1
+    {
+        return Err(Error::invalid(
+            "请选择导出生成的完整资产文件夹，内含 backup.json、personal.json 或 manifest.json 中的一种；不要选择其父文件夹",
+        ));
+    }
+    match role {
+        Role::Admin if group || package => import_as_draft(state, directory).await,
+        Role::Sales if personal => crate::personal::import(state, directory).await,
+        Role::Sales if package => import_package(state, directory).await,
+        Role::Sales if group => {
+            // Use only the published portion of an administrator's assets for offline sync.
+            let _sync = state
+                .sync
+                .try_lock()
+                .map_err(|_| Error::conflict("请等待当前同步完成"))?;
+            let data = read_backup(path).await?;
+            let current = state.required_workspace().await?;
+            if current.group_id != data.workspace.group_id {
+                return Err(Error::conflict(
+                    "资产不属于当前工作组，业务员只能导入自己工作组的资产",
+                ));
+            }
+            let manifest = data
+                .releases
+                .into_iter()
+                .max_by_key(|m| m.version)
+                .ok_or_else(|| {
+                    Error::invalid("此资产还没有已发布的资料，请管理员发布后重新导出")
+                })?;
+            copy_materials(
+                &path.join("blobs"),
+                &state.root.join("blobs"),
+                &manifest.materials,
+            )
+            .await?;
+            state
+                .apply(&manifest, &current.admin_address.unwrap_or_default())
+                .await
+        }
+        _ => Err(Error::invalid(
+            "管理员需要导入工作组资产；个人分支资产仅供同工作组业务员使用",
+        )),
+    }
 }
