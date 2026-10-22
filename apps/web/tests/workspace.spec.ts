@@ -26,7 +26,12 @@ test('创建工作组、分支导航、复制、悬浮布局、Excel 导入搜�
     errors.push(error.message);
     console.error('Browser error:', error.message);
   });
+  const discovery = page.waitForRequest(r => r.url().endsWith('/api/v1/group/discover'));
   await page.goto('/');
+  await discovery;
+  await expect(page.getByRole('button',{name:'发现并加入工作组',exact:true})).toBeVisible();
+  await expect(page.getByText('从管理员备份恢复',{exact:true})).toHaveCount(0);
+  await expect(page.getByText('通过资料包加入',{exact:true})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'连接你的工作组'})).toBeVisible({timeout:20_000});
   await page.getByRole('button',{name:'创建工作组',exact:true}).click();
   await page.getByLabel('工作组名称').fill('销售验收工作组');
@@ -601,9 +606,10 @@ test('按截图精简导航和编辑，分类改名删除及跨工作组备份�
   await page.getByRole('button',{name:'设置',exact:true}).click();
   await expect(page.getByRole('heading',{name:'本次发布内容',exact:true})).toBeVisible();
   await expect(page.getByRole('heading',{name:'当前工作组',exact:true})).toBeVisible();
-  await expect(page.getByRole('heading',{name:'备份管理员资料',exact:true})).toBeVisible();
-  await expect(page.getByRole('heading',{name:'追加导入其他工作组资料',exact:true})).toBeVisible();
-  const saved = await (await page.request.post('/api/v1/backup',{headers:{'x-knowtosay-local':'1'},data:{directory:null}})).json();
+  await expect(page.getByRole('heading',{name:'资产',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'导出资产',exact:true})).toHaveCount(1);
+  await expect(page.getByRole('button',{name:'导入资产',exact:true})).toHaveCount(1);
+  const saved = await (await page.request.post('/api/v1/assets/export',{headers:{'x-knowtosay-local':'1'},data:{directory:null}})).json();
   const path = resolve(saved.path,'backup.json');
   const foreign = JSON.parse(await readFile(path,'utf8'));
   foreign.workspace.groupId = crypto.randomUUID();
@@ -611,10 +617,10 @@ test('按截图精简导航和编辑，分类改名删除及跨工作组备份�
   for (const release of foreign.releases) { release.groupId = foreign.workspace.groupId; release.groupName = foreign.workspace.name; }
   await writeFile(path,JSON.stringify(foreign));
   const before = await (await page.request.get('/api/v1/snapshot')).json();
-  await page.getByLabel('要导入的工作组备份文件夹',{exact:true}).fill(saved.path);
+  await page.getByLabel('导入资产文件夹',{exact:true}).fill(saved.path);
   page.once('dialog', dialog => dialog.accept());
-  await page.getByRole('button',{name:'选择工作组备份并追加导入',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('已导入到当前主库草稿');
+  await page.getByRole('button',{name:'导入资产',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('资产已导入');
   snapshot = await (await page.request.get('/api/v1/snapshot')).json();
   expect(snapshot.workspace).toEqual(before.workspace);
   expect(snapshot.nodes.length).toBe(before.nodes.length + foreign.draft_nodes.length);
@@ -865,4 +871,50 @@ test('文件夹中的文案多图案例、移动改名与图片取用', async ({
   await page.getByRole('button',{name:'删除当前文件夹',exact:true}).click();
   await expect(card).toBeVisible();
   await expect(page.getByRole('navigation',{name:'文件夹导航'})).not.toContainText('已归档案例');
+});
+
+test('两个工作组入口、自动发现、手动加入和统一资产设置', async ({ page }, testInfo) => {
+  const base = await (await page.request.get('/api/v1/snapshot')).json();
+  let joined = false;
+  const addresses: string[] = [];
+  let discoveries = 0;
+  const sales = { ...base, workspace: { ...base.workspace, role: 'sales', adminAddress: 'http://192.168.1.20:51876' }, draftDirty: false };
+  await page.route('**/api/v1/snapshot', route => route.fulfill({ json: joined ? sales : { ...base, workspace: null, nodes: [], materials: [], flows: [], folders: [] } }));
+  await page.route('**/api/v1/group/discover', route => {
+    discoveries++;
+    return route.fulfill({ json: [{ groupId: base.workspace.groupId, name: '局域网销售组', address: 'http://192.168.1.20:51876' }] });
+  });
+  await page.route('**/api/v1/group/join', route => {
+    addresses.push(route.request().postDataJSON().address);
+    joined = true;
+    return route.fulfill({ json: sales });
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '发现并加入工作组', exact: true })).toBeVisible();
+  await expect.poll(() => discoveries).toBe(1);
+  await page.screenshot({ path: testInfo.outputPath('discover-group.png'), fullPage: true });
+  await page.getByRole('button', { name: /局域网销售组/ }).click();
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
+  expect(addresses).toEqual(['http://192.168.1.20:51876']);
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await expect(page.getByRole('button', { name: '导入资产', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: '导出资产', exact: true })).toHaveCount(1);
+  await expect(page.getByText('此电脑的角色', { exact: true }).locator('..')).toContainText('业务员');
+  await expect(page.getByRole('button', { name: '发布更新', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '离线资料包', exact: true })).toHaveCount(0);
+  joined = false;
+  await page.goto('/');
+  await page.getByLabel('管理员 IP 和端口', { exact: true }).fill('192.168.1.21:53000');
+  await page.getByRole('button', { name: '加入并同步资料' }).click();
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
+  expect(addresses[1]).toBe('192.168.1.21:53000');
+  await page.unroute('**/api/v1/snapshot');
+  await page.route('**/api/v1/group/network', route => route.fulfill({ json: { address: '192.168.1.20:51876', port: 51876, available: true } }));
+  await page.reload();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '复制加入地址', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('192.168.1.20:51876');
+  await page.setViewportSize({ width: 400, height: 850 });
+  await expect(page.getByRole('button', { name: '导入资产', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

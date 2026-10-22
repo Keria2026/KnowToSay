@@ -22,3 +22,5 @@ export type SearchLaunchScope = components['schemas']['SearchLaunchScope'];
 export type ReplyOption = components['schemas']['ReplyOption'];
 
 export type Folder = components['schemas']['Folder'];
+
+export type LanStatus = components['schemas']['LanStatus'];

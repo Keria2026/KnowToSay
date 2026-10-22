@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/api/v1/backup/import": {
+    "/api/v1/assets/export": {
         parameters: {
             query?: never;
             header?: never;
@@ -13,7 +13,23 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["import_backup"];
+        post: operations["export_assets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assets/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["import_assets"];
         delete?: never;
         options?: never;
         head?: never;
@@ -116,6 +132,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/group/network": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["network_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/manifest": {
         parameters: {
             query?: never;
@@ -174,38 +206,6 @@ export interface paths {
         get: operations["material_rows"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/personal/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["export_personal"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/personal/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["import_personal"];
         delete?: never;
         options?: never;
         head?: never;
@@ -440,6 +440,12 @@ export interface components {
         JoinGroup: {
             address: string;
         };
+        LanStatus: {
+            address?: string | null;
+            available: boolean;
+            /** Format: int32 */
+            port: number;
+        };
         Manifest: {
             flows?: components["schemas"]["Flow"][];
             folders?: components["schemas"]["Folder"][];
@@ -579,7 +585,30 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    import_backup: {
+    export_assets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileResult"];
+                };
+            };
+        };
+    };
+    import_assets: {
         parameters: {
             query?: never;
             header?: never;
@@ -736,6 +765,25 @@ export interface operations {
             };
         };
     };
+    network_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LanStatus"];
+                };
+            };
+        };
+    };
     manifest: {
         parameters: {
             query?: never;
@@ -822,52 +870,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SheetPage"];
-                };
-            };
-        };
-    };
-    export_personal: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BackupRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FileResult"];
-                };
-            };
-        };
-    };
-    import_personal: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RestoreRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Snapshot"];
                 };
             };
         };

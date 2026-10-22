@@ -223,6 +223,14 @@ pub struct Discovery {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct LanStatus {
+    pub address: Option<String>,
+    pub port: u16,
+    pub available: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
     pub phase: String,
     pub message: String,

@@ -247,7 +247,41 @@ async fn sync_inner(state: &AppState, address: &str) -> Result<()> {
     Ok(())
 }
 
+/// Resolve the interface chosen by the OS for LAN broadcast without sending traffic.
+pub async fn lan_status(state: &AppState) -> LanStatus {
+    let address = tokio::time::timeout(Duration::from_secs(2), async {
+        let socket = UdpSocket::bind("0.0.0.0:0").await.ok()?;
+        socket.set_broadcast(true).ok()?;
+        socket.connect(("255.255.255.255", LAN_PORT)).await.ok()?;
+        let ip = socket.local_addr().ok()?.ip();
+        match ip {
+            IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_unspecified() => {
+                Some(format!("{ip}:{LAN_PORT}"))
+            }
+            _ => None,
+        }
+    })
+    .await
+    .ok()
+    .flatten();
+    LanStatus {
+        address,
+        port: LAN_PORT,
+        available: state
+            .lan_available
+            .load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
 pub async fn discover() -> Result<Vec<Discovery>> {
+    // Broadcast I/O can stall on isolated Windows adapters. Bound the whole
+    // operation, including bind/send, so discovery cannot stall onboarding.
+    tokio::time::timeout(Duration::from_secs(2), discover_inner())
+        .await
+        .unwrap_or_else(|_| Ok(Vec::new()))
+}
+
+async fn discover_inner() -> Result<Vec<Discovery>> {
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
     socket.set_broadcast(true)?;
     socket
@@ -305,9 +339,13 @@ pub fn background(state: AppState) {
     tokio::spawn(async move {
         match tokio::net::TcpListener::bind(("0.0.0.0", LAN_PORT)).await {
             Ok(listener) => {
-                if let Err(e) = axum::serve(listener, crate::http::lan_router(lan)).await {
+                lan.lan_available
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                if let Err(e) = axum::serve(listener, crate::http::lan_router(lan.clone())).await {
                     eprintln!("局域网同步服务: {e}")
                 }
+                lan.lan_available
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
             }
             Err(e) => eprintln!("局域网端口不可用: {e}"),
         }

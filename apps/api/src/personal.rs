@@ -23,7 +23,7 @@ pub async fn export(state: &AppState, directory: Option<String>) -> Result<FileR
     let _guard = state.write.lock().await;
     let w = state.required_workspace().await?;
     if w.role != Role::Sales {
-        return Err(Error::invalid("个人备份只用于业务员分支"));
+        return Err(Error::invalid("个人资产只用于业务员分支"));
     }
     let data = PersonalBackup {
         format_version: 2,
@@ -38,9 +38,12 @@ pub async fn export(state: &AppState, directory: Option<String>) -> Result<FileR
         .map(PathBuf::from)
         .unwrap_or_else(|| state.root.join("exports"));
     if !base.is_absolute() {
-        return Err(Error::invalid("请选择绝对路径的备份位置"));
+        return Err(Error::invalid("请选择绝对路径的导出位置"));
     }
-    let destination = base.join(format!("knowtosay-personal-{}", uuid::Uuid::new_v4()));
+    let destination = base.join(format!(
+        "knowtosay-personal-assets-{}",
+        uuid::Uuid::new_v4()
+    ));
     tokio::fs::create_dir_all(&destination).await?;
     tokio::fs::write(
         destination.join("personal.json"),
@@ -56,16 +59,20 @@ pub async fn import(state: &AppState, directory: &str) -> Result<()> {
     let w = state.required_workspace().await?;
     let path = PathBuf::from(directory).join("personal.json");
     if tokio::fs::metadata(&path).await?.len() > 64 * 1024 * 1024 {
-        return Err(Error::invalid("个人备份过大"));
+        return Err(Error::invalid("个人资产过大"));
     }
-    let mut data: PersonalBackup = serde_json::from_slice(&tokio::fs::read(path).await?)?;
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| Error::invalid("无法读取个人资产，请完整复制导出的资产文件夹"))?;
+    let mut data: PersonalBackup = serde_json::from_slice(&bytes)
+        .map_err(|_| Error::invalid("个人资产清单损坏或版本不受支持，请重新导出或更新客户端"))?;
     if data.format_version == 1 {
         upgrade_single_flow(&mut data.personal_nodes, &mut data.flow_dependencies);
         upgrade_single_flow(&mut data.dependencies, &mut data.flow_dependencies);
         data.format_version = 2;
     }
     if w.role != Role::Sales || w.group_id != data.group_id || data.format_version != 2 {
-        return Err(Error::conflict("备份不属于当前业务员工作组"));
+        return Err(Error::conflict("个人资产不属于当前业务员工作组"));
     }
     for n in data.personal_nodes.iter().chain(data.dependencies.iter()) {
         crate::db::validate_node(n)?;

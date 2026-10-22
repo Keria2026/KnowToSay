@@ -3376,3 +3376,10 @@ summary {
 .case-image-tile .material-use-actions {
   margin-top: 12px;
 }
+
+.asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: 24px;
+}

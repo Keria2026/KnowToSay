@@ -21,6 +21,7 @@ pub struct AppState {
     pub write: Arc<Mutex<()>>,
     pub sync: Arc<Mutex<()>>,
     pub progress: Arc<RwLock<SyncStatus>>,
+    pub lan_available: Arc<std::sync::atomic::AtomicBool>,
     pub client: reqwest::Client,
 }
 
@@ -57,6 +58,7 @@ impl AppState {
             write: Arc::new(Mutex::new(())),
             sync: Arc::new(Mutex::new(())),
             progress: Arc::new(RwLock::new(SyncStatus::default())),
+            lan_available: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             client,
         })
     }

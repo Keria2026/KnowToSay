@@ -9,12 +9,42 @@
     "version": "0.1.0"
   },
   "paths": {
-    "/api/v1/backup/import": {
+    "/api/v1/assets/export": {
       "post": {
         "tags": [
           "http"
         ],
-        "operationId": "import_backup",
+        "operationId": "export_assets",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assets/import": {
+      "post": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "import_assets",
         "requestBody": {
           "content": {
             "application/json": {
@@ -222,6 +252,26 @@
         }
       }
     },
+    "/api/v1/group/network": {
+      "get": {
+        "tags": [
+          "http"
+        ],
+        "operationId": "network_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LanStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/manifest": {
       "get": {
         "tags": [
@@ -350,66 +400,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SheetPage"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/personal/export": {
-      "post": {
-        "tags": [
-          "http"
-        ],
-        "operationId": "export_personal",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BackupRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FileResult"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/personal/import": {
-      "post": {
-        "tags": [
-          "http"
-        ],
-        "operationId": "import_personal",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RestoreRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Snapshot"
                 }
               }
             }
@@ -996,6 +986,29 @@
         "properties": {
           "address": {
             "type": "string"
+          }
+        }
+      },
+      "LanStatus": {
+        "type": "object",
+        "required": [
+          "port",
+          "available"
+        ],
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

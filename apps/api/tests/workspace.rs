@@ -1559,7 +1559,7 @@ async fn foreign_backup_import_merges_drafts_remaps_references_and_keeps_identit
         local(
             &target,
             "POST",
-            "/backup/import",
+            "/assets/import",
             json!({"directory":saved.path})
         )
         .await
@@ -1672,12 +1672,12 @@ async fn foreign_backup_import_merges_drafts_remaps_references_and_keeps_identit
         local(
             &sales,
             "POST",
-            "/backup/import",
+            "/assets/import",
             json!({"directory":saved.path})
         )
         .await
         .0,
-        StatusCode::FORBIDDEN
+        StatusCode::CONFLICT
     );
     let release = target.publish().await.unwrap();
     assert_eq!(release.group_id, identity.group_id);
@@ -2127,4 +2127,255 @@ async fn legacy_categories_and_release_manifests_migrate_to_stable_folders() {
         .unwrap();
     backup::restore(&state, &saved.path).await.unwrap();
     assert!(state.snapshot().await.unwrap().folders.is_empty());
+}
+
+#[tokio::test]
+async fn unified_assets_route_by_role_and_preserve_personal_data_on_offline_sync() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    admin.save_node(node("shared", "공식 답변")).await.unwrap();
+    let material = binary_material(&admin, "picture.txt", b"asset content").await;
+    let published = admin.publish().await.unwrap();
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    sales
+        .apply(&published, "http://192.168.1.2:51876")
+        .await
+        .unwrap();
+    sales.save_node(node("shared", "개인 답변")).await.unwrap();
+    let (status, personal) =
+        local(&sales, "POST", "/assets/export", json!({"directory":null})).await;
+    assert_eq!(status, StatusCode::OK);
+    let personal_path = personal["path"].as_str().unwrap();
+    assert!(
+        std::path::Path::new(personal_path)
+            .join("personal.json")
+            .is_file()
+    );
+    assert!(!std::path::Path::new(personal_path).join("blobs").exists());
+    admin
+        .save_node(node("shared", "새 공식 답변"))
+        .await
+        .unwrap();
+    admin.publish().await.unwrap();
+    admin
+        .save_node(node("unpublished", "초안 비공개"))
+        .await
+        .unwrap();
+    let (status, assets) = local(&admin, "POST", "/assets/export", json!({"directory":null})).await;
+    assert_eq!(status, StatusCode::OK);
+    let assets_path = assets["path"].as_str().unwrap();
+    let (status, updated) = local(
+        &sales,
+        "POST",
+        "/assets/import",
+        json!({"directory":assets_path}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let updated: Snapshot = serde_json::from_value(updated).unwrap();
+    assert_eq!(updated.nodes.len(), 1);
+    assert_eq!(updated.nodes[0].node.replies["ko"], "개인 답변");
+    assert_eq!(
+        updated.nodes[0].official.as_ref().unwrap().replies["ko"],
+        "새 공식 답변"
+    );
+    assert_eq!(updated.materials.len(), 1);
+    assert!(
+        sales
+            .root
+            .join("blobs")
+            .join(material.hash.unwrap())
+            .is_file()
+    );
+    sales.save_node(node("shared", "暂时修改")).await.unwrap();
+    assert_eq!(
+        local(
+            &sales,
+            "POST",
+            "/assets/import",
+            json!({"directory":personal_path})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        sales.snapshot().await.unwrap().nodes[0].node.replies["ko"],
+        "개인 답변"
+    );
+    let other = create_admin(&dir.path().join("other")).await;
+    let identity = serde_json::to_value(other.required_workspace().await.unwrap()).unwrap();
+    assert_eq!(
+        local(
+            &other,
+            "POST",
+            "/assets/import",
+            json!({"directory":assets_path})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        serde_json::to_value(other.required_workspace().await.unwrap()).unwrap(),
+        identity
+    );
+    assert_eq!(other.snapshot().await.unwrap().nodes.len(), 2);
+    let before = serde_json::to_value(other.snapshot().await.unwrap()).unwrap();
+    assert_eq!(
+        local(
+            &other,
+            "POST",
+            "/assets/import",
+            json!({"directory":personal_path})
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        serde_json::to_value(other.snapshot().await.unwrap()).unwrap(),
+        before
+    );
+    let legacy = backup::export_package(&admin, None).await.unwrap();
+    let legacy_admin = create_admin(&dir.path().join("legacy-admin")).await;
+    let legacy_identity = legacy_admin.required_workspace().await.unwrap().group_id;
+    assert_eq!(
+        local(
+            &legacy_admin,
+            "POST",
+            "/assets/import",
+            json!({"directory":legacy.path})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let legacy_snapshot = legacy_admin.snapshot().await.unwrap();
+    assert_eq!(legacy_snapshot.nodes.len(), 1);
+    assert_eq!(legacy_snapshot.workspace.unwrap().group_id, legacy_identity);
+    let uninitialized = AppState::open(dir.path().join("empty")).await.unwrap();
+    assert_eq!(
+        local(
+            &uninitialized,
+            "POST",
+            "/assets/import",
+            json!({"directory":assets_path})
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    assert!(uninitialized.workspace().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn asset_errors_explain_invalid_folders_and_leave_data_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let original = serde_json::to_value(admin.snapshot().await.unwrap()).unwrap();
+    let (_, error) = local(
+        &admin,
+        "POST",
+        "/assets/import",
+        json!({"directory":dir.path()}),
+    )
+    .await;
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("完整资产文件夹")
+    );
+    let saved = backup::backup(&admin, None).await.unwrap();
+    tokio::fs::write(
+        std::path::Path::new(&saved.path).join("backup.json"),
+        b"invalid json",
+    )
+    .await
+    .unwrap();
+    let (_, error) = local(
+        &admin,
+        "POST",
+        "/assets/import",
+        json!({"directory":saved.path}),
+    )
+    .await;
+    assert!(error["message"].as_str().unwrap().contains("清单损坏"));
+    assert_eq!(
+        serde_json::to_value(admin.snapshot().await.unwrap()).unwrap(),
+        original
+    );
+    let m = binary_material(&admin, "test.txt", b"required asset").await;
+    let saved = backup::backup(&admin, None).await.unwrap();
+    tokio::fs::remove_file(
+        std::path::Path::new(&saved.path)
+            .join("blobs")
+            .join(m.hash.unwrap()),
+    )
+    .await
+    .unwrap();
+    let before = serde_json::to_value(admin.snapshot().await.unwrap()).unwrap();
+    let (_, error) = local(
+        &admin,
+        "POST",
+        "/assets/import",
+        json!({"directory":saved.path}),
+    )
+    .await;
+    assert!(error["message"].as_str().unwrap().contains("素材文件缺失"));
+    assert_eq!(
+        serde_json::to_value(admin.snapshot().await.unwrap()).unwrap(),
+        before
+    );
+    let (_, network) = local(&admin, "GET", "/group/network", json!(null)).await;
+    assert_eq!(network["port"], sync::LAN_PORT);
+    assert_eq!(network["available"], false);
+}
+
+#[tokio::test]
+async fn manual_join_requires_online_group_and_persists_sales_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = create_admin(&dir.path().join("admin")).await;
+    let sales = AppState::open(dir.path().join("sales")).await.unwrap();
+    let address = server(admin.clone(), None).await;
+    let (status, _) = local(&sales, "POST", "/group/join", json!({"address":address})).await;
+    assert!(!status.is_success());
+    assert!(sales.workspace().await.unwrap().is_none());
+    admin.save_node(node("hello", "안녕하세요")).await.unwrap();
+    admin.publish().await.unwrap();
+    let (status, snapshot) = local(
+        &sales,
+        "POST",
+        "/group/join",
+        json!({"address":address.trim_start_matches("http://")}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(snapshot["workspace"]["role"], "sales");
+    assert_eq!(
+        snapshot["workspace"]["groupId"],
+        admin.required_workspace().await.unwrap().group_id
+    );
+    assert_eq!(snapshot["workspace"]["adminAddress"], address);
+    assert_eq!(
+        AppState::open(&*sales.root)
+            .await
+            .unwrap()
+            .snapshot()
+            .await
+            .unwrap()
+            .nodes
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn discovery_finishes_even_when_broadcast_is_unavailable() {
+    // Actual socket I/O may fail or return no groups on isolated CI adapters.
+    // Either outcome must finish, so manual join and create stay usable.
+    let _result = tokio::time::timeout(std::time::Duration::from_secs(5), sync::discover())
+        .await
+        .expect("LAN discovery exceeded its overall timeout");
 }

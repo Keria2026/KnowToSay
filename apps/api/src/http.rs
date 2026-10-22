@@ -28,6 +28,7 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/group", post(create_group))
         .route("/api/v1/group/join", post(join_group))
         .route("/api/v1/group/discover", get(discover))
+        .route("/api/v1/group/network", get(network_status))
         .route("/api/v1/group/address", put(update_address))
         .route("/api/v1/scripts/{id}", put(save_node).delete(delete_node))
         .route("/api/v1/scripts", put(save_nodes))
@@ -54,13 +55,8 @@ pub fn local_router(state: AppState) -> Router {
         .route("/api/v1/sync", post(start_sync))
         .route("/api/v1/sync/status", get(sync_status))
         .route("/api/v1/demo", post(demo))
-        .route("/api/v1/backup", post(create_backup))
-        .route("/api/v1/backup/import", post(import_backup))
-        .route("/api/v1/restore", post(restore_backup))
-        .route("/api/v1/package/export", post(export_package))
-        .route("/api/v1/package/import", post(import_package))
-        .route("/api/v1/personal/export", post(export_personal))
-        .route("/api/v1/personal/import", post(import_personal))
+        .route("/api/v1/assets/export", post(export_assets))
+        .route("/api/v1/assets/import", post(import_assets))
         .route("/api/v1/manifest", get(manifest))
         .merge(upload)
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
@@ -182,6 +178,11 @@ pub async fn join_group(
 #[utoipa::path(get,path="/api/v1/group/discover",responses((status=200,body=Vec<Discovery>)))]
 pub async fn discover() -> Result<Json<Vec<Discovery>>> {
     Ok(Json(sync::discover().await?))
+}
+
+#[utoipa::path(get,path="/api/v1/group/network",responses((status=200,body=LanStatus)))]
+pub async fn network_status(State(state): State<AppState>) -> Json<LanStatus> {
+    Json(sync::lan_status(&state).await)
 }
 
 pub async fn update_address(
@@ -595,38 +596,24 @@ pub async fn sync_status(State(state): State<AppState>) -> Json<SyncStatus> {
     Json(state.progress.read().await.clone())
 }
 
-pub async fn create_backup(
+#[utoipa::path(post,path="/api/v1/assets/export",request_body=BackupRequest,responses((status=200,body=FileResult)))]
+pub async fn export_assets(
     State(state): State<AppState>,
     Json(input): Json<BackupRequest>,
 ) -> Result<Json<FileResult>> {
-    Ok(Json(backup::backup(&state, input.directory).await?))
+    let result = match state.required_workspace().await?.role {
+        Role::Admin => backup::backup(&state, input.directory).await?,
+        Role::Sales => crate::personal::export(&state, input.directory).await?,
+    };
+    Ok(Json(result))
 }
-pub async fn restore_backup(
+
+#[utoipa::path(post,path="/api/v1/assets/import",request_body=RestoreRequest,responses((status=200,body=Snapshot)))]
+pub async fn import_assets(
     State(state): State<AppState>,
     Json(input): Json<RestoreRequest>,
 ) -> Result<Json<Snapshot>> {
-    backup::restore(&state, &input.directory).await?;
-    Ok(Json(state.snapshot().await?))
-}
-#[utoipa::path(post,path="/api/v1/backup/import",request_body=RestoreRequest,responses((status=200,body=Snapshot)))]
-pub async fn import_backup(
-    State(state): State<AppState>,
-    Json(input): Json<RestoreRequest>,
-) -> Result<Json<Snapshot>> {
-    backup::import_as_draft(&state, &input.directory).await?;
-    Ok(Json(state.snapshot().await?))
-}
-pub async fn export_package(
-    State(state): State<AppState>,
-    Json(input): Json<BackupRequest>,
-) -> Result<Json<FileResult>> {
-    Ok(Json(backup::export_package(&state, input.directory).await?))
-}
-pub async fn import_package(
-    State(state): State<AppState>,
-    Json(input): Json<RestoreRequest>,
-) -> Result<Json<Snapshot>> {
-    backup::import_package(&state, &input.directory).await?;
+    backup::import_assets(&state, &input.directory).await?;
     Ok(Json(state.snapshot().await?))
 }
 
@@ -736,24 +723,6 @@ pub async fn demo(State(state): State<AppState>) -> Result<Json<Snapshot>> {
         };
         state.save_node(node).await?;
     }
-    Ok(Json(state.snapshot().await?))
-}
-
-#[utoipa::path(post,path="/api/v1/personal/export",request_body=BackupRequest,responses((status=200,body=FileResult)))]
-pub async fn export_personal(
-    State(state): State<AppState>,
-    Json(input): Json<BackupRequest>,
-) -> Result<Json<FileResult>> {
-    Ok(Json(
-        crate::personal::export(&state, input.directory).await?,
-    ))
-}
-#[utoipa::path(post,path="/api/v1/personal/import",request_body=RestoreRequest,responses((status=200,body=Snapshot)))]
-pub async fn import_personal(
-    State(state): State<AppState>,
-    Json(input): Json<RestoreRequest>,
-) -> Result<Json<Snapshot>> {
-    crate::personal::import(&state, &input.directory).await?;
     Ok(Json(state.snapshot().await?))
 }
 
